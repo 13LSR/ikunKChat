@@ -30,10 +30,15 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
   }, []);
 
   const _initiateStream = useCallback(async (chatId: string, historyForAPI: Message[], personaId: string | null | undefined, titleGenerationMode: 'INITIAL' | 'RECURRING' | null = null, availableModels: string[] = []) => {
+    const hasProviderEnvConfig = settings.llmProvider === 'openai'
+      ? !!process.env.OPENAI_API_KEY?.trim()
+      : !!(process.env.GEMINI_API_KEY?.trim() || process.env.API_KEY?.trim());
+    const shouldUseManualConfig = settings.useCustomApi || !hasProviderEnvConfig;
+
     // 获取 API Key：如果用户启用了自定义，使用用户的配置；否则使用环境变量
     let apiKeys: string[] = [];
-    if (settings.useCustomApi) {
-      // 用户启用了自定义配置，使用用户输入的 API Key
+    if (shouldUseManualConfig) {
+      // 用户启用了自定义配置，或当前 provider 没有环境变量配置时，使用用户输入的 API Key
       apiKeys = settings.apiKey && settings.apiKey.length > 0 ? settings.apiKey : [];
     } else {
       // 用户未启用自定义，使用环境变量
@@ -82,8 +87,8 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
 
       // 获取 API Base URL：如果用户启用了自定义，使用用户的配置；否则使用环境变量
       let apiBaseUrl = '';
-      if (settings.useCustomApi) {
-        // 用户启用了自定义配置，使用用户输入的 API Base URL
+      if (shouldUseManualConfig) {
+        // 用户启用了自定义配置，或当前 provider 没有环境变量配置时，使用用户输入的 API Base URL
         apiBaseUrl = settings.apiBaseUrl || '';
       } else {
         // 用户未启用自定义，使用环境变量

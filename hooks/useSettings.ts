@@ -142,11 +142,33 @@ export const useSettings = () => {
   useEffect(() => {
     if (!isStorageLoaded) return;
 
+    const customModelsList = settings.customModels
+      ? settings.customModels.split(/[\n,]+/).map(m => m.trim()).filter(Boolean)
+      : [];
+
+    // 先展示用户手填的模型，避免接口拉取卡住时选择器一直为空。
+    if (customModelsList.length > 0) {
+      setAvailableModels(currentModels => {
+        const mergedModels = [...new Set([...currentModels, ...customModelsList])];
+        return mergedModels.length === currentModels.length &&
+          mergedModels.every((model, index) => model === currentModels[index])
+          ? currentModels
+          : mergedModels;
+      });
+    } else {
+      setAvailableModels(currentModels => {
+        if (currentModels.length === 0) return currentModels;
+        return [];
+      });
+    }
+
     // 获取实际使用的 API Key 和 Base URL
     let actualApiKey = '';
     let actualApiBaseUrl = '';
 
-    if (settings.useCustomApi) {
+    const shouldUseManualConfig = settings.useCustomApi || !envConfig;
+
+    if (shouldUseManualConfig) {
       // 用户启用了自定义配置
       const apiKeys = settings.apiKey || [];
       actualApiKey = apiKeys.length > 0 ? apiKeys[0] : '';
@@ -157,39 +179,40 @@ export const useSettings = () => {
       actualApiBaseUrl = envConfig.apiBaseUrl;
     }
 
-    if (actualApiKey) {
-      const llmService = createLLMService(settings);
-      llmService.getAvailableModels(actualApiKey, actualApiBaseUrl).then(fetchedModels => {
-        // 解析用户自定义的模型列表
-        const customModelsList = settings.customModels
-          ? settings.customModels.split(/[\n,]+/).map(m => m.trim()).filter(Boolean)
-          : [];
+    const applyModels = (fetchedModels: string[]) => {
+      const allModels = [...new Set([...fetchedModels, ...customModelsList])];
 
-        // 合并 fetch 到的模型和用户自定义的模型（去重）
-        const allModels = [...new Set([...fetchedModels, ...customModelsList])];
+      if (allModels.length === 0) return;
 
-        if (allModels.length === 0) return;
-
-        setAvailableModels(allModels);
-        setSettings(current => {
-          const newDefaults: Partial<Settings> = {};
-          // 如果 lastSelectedModel 不在模型列表中，清空它（会自动使用第一个模型）
-          if (current.lastSelectedModel && !allModels.includes(current.lastSelectedModel)) {
-            newDefaults.lastSelectedModel = undefined;
-          }
-          // 标题生成模型逻辑：优先使用环境变量，否则取列表最后一位
-          const envTitleModel = process.env.TITLE_MODEL_NAME?.trim();
-          if (envTitleModel) {
-            // 环境变量有配置，使用环境变量
-            newDefaults.titleGenerationModel = envTitleModel;
-          } else if (!allModels.includes(current.titleGenerationModel)) {
-            // 环境变量没有配置，取列表最后一位
-            newDefaults.titleGenerationModel = allModels[allModels.length - 1] || '';
-          }
-          return Object.keys(newDefaults).length > 0 ? { ...current, ...newDefaults } : current;
-        });
+      setAvailableModels(allModels);
+      setSettings(current => {
+        const newDefaults: Partial<Settings> = {};
+        // 如果 lastSelectedModel 不在模型列表中，清空它（会自动使用第一个模型）
+        if (current.lastSelectedModel && !allModels.includes(current.lastSelectedModel)) {
+          newDefaults.lastSelectedModel = undefined;
+        }
+        // 标题生成模型逻辑：优先使用环境变量，否则取列表最后一位
+        const envTitleModel = process.env.TITLE_MODEL_NAME?.trim();
+        if (envTitleModel) {
+          // 环境变量有配置，使用环境变量
+          newDefaults.titleGenerationModel = envTitleModel;
+        } else if (!allModels.includes(current.titleGenerationModel)) {
+          // 环境变量没有配置，取列表最后一位
+          newDefaults.titleGenerationModel = allModels[allModels.length - 1] || '';
+        }
+        return Object.keys(newDefaults).length > 0 ? { ...current, ...newDefaults } : current;
       });
+    };
+
+    if (!actualApiKey) {
+      applyModels([]);
+      return;
     }
+
+    const llmService = createLLMService(settings);
+    llmService.getAvailableModels(actualApiKey, actualApiBaseUrl)
+      .then(applyModels)
+      .catch(() => applyModels([]));
   }, [isStorageLoaded, settings.apiKey, settings.apiBaseUrl, settings.llmProvider, settings.useCustomApi, settings.customModels]);
 
   return { settings, setSettings, availableModels, isStorageLoaded };
