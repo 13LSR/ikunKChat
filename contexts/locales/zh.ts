@@ -86,6 +86,9 @@ export const zh = {
     customModelsPlaceholder: '例如：gemini-2.0-flash-exp, gpt-4-turbo',
     llmProvider: '模型服务商',
     llmProviderDesc: '选择用于聊天的后端大语言模型服务。',
+    apiConfig: 'API 配置',
+    apiConfigDesc: '以 JSON 格式编辑所有 API 相关配置。修改后自动保存。',
+    apiConfigError: 'JSON 格式错误，请检查修正后重试。',
     langDetectModel: '语言检测模型',
 
     autoTitleGeneration: '自动生成聊天标题',
