@@ -17,9 +17,8 @@ export const useSettingsSearch = (searchQuery: string) => {
       const allVisible = new Set([
         'language', 'theme', 'defaultPersona', 'fontFamily', 'colorPalette', 'fontSize', 'password',
         'autoTitleGeneration', 'titleGenModel',
-        'showThoughts', 'llmProvider', 'apiKey', 'apiBaseUrl', 'temperature',
-        'contextLength', 'maxOutputTokens', 'enableSearch',
-        'streamInactivityTimeout', 'data', 'pdf-management'
+        'showThoughts', 'apiConfig',
+        'data', 'pdf-management'
       ]);
       const allSectionsVisible = SECTIONS.reduce((acc, sec) => ({ ...acc, [sec]: true }), {});
       return { visibleSettingIds: allVisible, sectionVisibility: allSectionsVisible as SectionVisibility };
@@ -42,13 +41,7 @@ export const useSettingsSearch = (searchQuery: string) => {
         { id: 'showThoughts', section: 'behavior', texts: [t('showThoughts'), t('showThoughtsDesc'), translations.zh.showThoughts, translations.zh.showThoughtsDesc] },
 
         // Advanced
-        { id: 'llmProvider', section: 'advanced', texts: [t('llmProvider'), t('llmProviderDesc'), translations.zh.llmProvider, translations.zh.llmProviderDesc] },
-        { id: 'apiKey', section: 'advanced', texts: [t('apiKey'), t('apiKeyDesc'), translations.zh.apiKey, translations.zh.apiKeyDesc] },
-        { id: 'apiBaseUrl', section: 'advanced', texts: [t('apiBaseUrl'), t('apiBaseUrlDesc'), translations.zh.apiBaseUrl, translations.zh.apiBaseUrlDesc] },
-        { id: 'temperature', section: 'advanced', texts: [t('temperature'), t('temperatureDesc'), translations.zh.temperature, translations.zh.temperatureDesc] },
-        { id: 'contextLength', section: 'advanced', texts: [t('contextLength'), t('contextLengthDesc'), translations.zh.contextLength, translations.zh.contextLengthDesc] },
-        { id: 'enableSearch', section: 'advanced', texts: [t('enableSearch'), t('enableSearchDesc'), translations.zh.enableSearch, translations.zh.enableSearchDesc] },
-        { id: 'streamInactivityTimeout', section: 'advanced', texts: [t('streamInactivityTimeout'), t('streamInactivityTimeoutDesc'), translations.zh.streamInactivityTimeout, translations.zh.streamInactivityTimeoutDesc] },
+        { id: 'apiConfig', section: 'advanced', texts: [t('apiConfig'), t('apiConfigDesc'), translations.zh.apiConfig, translations.zh.apiConfigDesc, 'API', 'JSON', 'provider', 'apiKey', 'apiBaseUrl', 'customModels', 'temperature', 'contextLength', 'enableSearch', 'streamInactivityTimeout'] },
         
         // Data
         { id: 'data', section: 'data', texts: [t('importData'), t('exportSettings'), t('exportData'), t('clearHistory'), translations.zh.importData, translations.zh.exportSettings, translations.zh.exportData, translations.zh.clearHistory] },

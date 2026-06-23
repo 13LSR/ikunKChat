@@ -1,10 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Settings } from '../../types';
-import { CustomSelect, SelectOption } from '../CustomSelect';
-import { SettingsItem } from '../SettingsItem';
-import { Switch } from '../Switch';
 import { useLocalization } from '../../contexts/LocalizationContext';
-import { formatModelName } from '../../utils/textUtils';
 import { isApiKeySetByEnv, isApiBaseUrlSetByEnv } from '../../hooks/useSettings';
 
 interface AdvancedSettingsProps {
@@ -14,97 +10,120 @@ interface AdvancedSettingsProps {
   availableModels: string[];
 }
 
-export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({ settings, onSettingsChange, visibleIds, availableModels }) => {
-  const { t } = useLocalization();
-  const modelOptions: SelectOption[] = availableModels.map(m => ({ value: m, label: formatModelName(m) }));
+const settingsToJson = (settings: Settings): string => {
+  const config: Record<string, unknown> = {
+    provider: settings.llmProvider || 'gemini',
+    apiKey: settings.apiKey && settings.apiKey.length > 0 ? settings.apiKey : [''],
+    apiBaseUrl: settings.apiBaseUrl || '',
+    customModels: settings.customModels || '',
+    temperature: settings.temperature ?? 0.7,
+    maxOutputTokens: settings.maxOutputTokens ?? 16384,
+    contextLength: settings.contextLength ?? 50,
+    streamInactivityTimeout: settings.streamInactivityTimeout ?? 120,
+    enableSearch: settings.enableSearch ?? false,
+  };
+  if (isApiBaseUrlSetByEnv || isApiKeySetByEnv) {
+    config.useCustomApi = settings.useCustomApi ?? false;
+  }
+  return JSON.stringify(config, null, 2);
+};
 
-  const handleApiKeyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const keys = e.target.value.split(/[\n,]+/).map(k => k.trim()).filter(Boolean);
-    onSettingsChange({ apiKey: keys });
+export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({ settings, onSettingsChange }) => {
+  const { t } = useLocalization();
+  const [jsonText, setJsonText] = useState(() => settingsToJson(settings));
+  const [error, setError] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipSyncRef = useRef(false);
+
+  // Sync from external settings changes (not from user editing the textarea)
+  useEffect(() => {
+    if (skipSyncRef.current) {
+      skipSyncRef.current = false;
+      return;
+    }
+    setJsonText(settingsToJson(settings));
+    setError(false);
+  }, [settings]);
+
+  const applyJson = useCallback((text: string) => {
+    try {
+      const config = JSON.parse(text);
+      if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+        setError(true);
+        return;
+      }
+      setError(false);
+      skipSyncRef.current = true;
+
+      const patch: Partial<Settings> = {};
+      if (config.provider === 'gemini' || config.provider === 'openai') {
+        patch.llmProvider = config.provider;
+      }
+      if (Array.isArray(config.apiKey)) {
+        patch.apiKey = config.apiKey.filter((k: unknown) => typeof k === 'string' && k.trim());
+        if (patch.apiKey.length === 0) patch.apiKey = [''];
+      }
+      if (typeof config.apiBaseUrl === 'string') {
+        patch.apiBaseUrl = config.apiBaseUrl;
+      }
+      if (typeof config.customModels === 'string') {
+        patch.customModels = config.customModels;
+      }
+      if (typeof config.temperature === 'number') {
+        patch.temperature = config.temperature;
+      }
+      if (typeof config.maxOutputTokens === 'number') {
+        patch.maxOutputTokens = config.maxOutputTokens;
+      }
+      if (typeof config.contextLength === 'number') {
+        patch.contextLength = config.contextLength;
+      }
+      if (typeof config.streamInactivityTimeout === 'number') {
+        patch.streamInactivityTimeout = config.streamInactivityTimeout;
+      }
+      if (typeof config.enableSearch === 'boolean') {
+        patch.enableSearch = config.enableSearch;
+      }
+      if (typeof config.useCustomApi === 'boolean') {
+        patch.useCustomApi = config.useCustomApi;
+      }
+
+      onSettingsChange(patch);
+    } catch {
+      setError(true);
+    }
+  }, [onSettingsChange]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    setJsonText(text);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => applyJson(text), 500);
   };
 
-  const llmProviderOptions: SelectOption[] = [
-    { value: 'gemini', label: 'Google Gemini' },
-    { value: 'openai', label: 'OpenAI' },
-  ];
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   return (
-    <>
-      {visibleIds.has('llmProvider') && (
-        <SettingsItem label={t('llmProvider')} description={t('llmProviderDesc')}>
-          <CustomSelect
-            options={llmProviderOptions}
-            value={settings.llmProvider || 'gemini'}
-            onChange={(value) => onSettingsChange({ llmProvider: value as 'gemini' | 'openai' })}
-            className="w-60"
-          />
-        </SettingsItem>
+    <div className="settings-group">
+      <h3 className="settings-group-title">{t('apiConfig')}</h3>
+      <p className="settings-item-description mb-3">{t('apiConfigDesc')}</p>
+      <textarea
+        value={jsonText}
+        onChange={handleChange}
+        spellCheck={false}
+        className={`input-glass w-full font-mono text-sm leading-relaxed resize-y min-h-[320px] ${
+          error ? '!border-red-500' : ''
+        }`}
+        style={{ tabSize: 2 }}
+      />
+      {error && (
+        <p className="text-red-500 text-sm mt-2">{t('apiConfigError')}</p>
       )}
-      {visibleIds.has('apiKey') && (
-        <SettingsItem label={t('apiKey')} description={t('apiKeyDesc')}>
-           <textarea
-              value={isApiKeySetByEnv ? '' : (settings.apiKey || []).join('\n')}
-              onChange={handleApiKeyChange}
-              disabled={isApiKeySetByEnv}
-              placeholder={isApiKeySetByEnv ? t('apiKeyEnvVar') : t('apiKeyPlaceholder')}
-              className="input-glass max-w-60 min-h-24"
-              rows={3}
-           />
-        </SettingsItem>
-      )}
-      {visibleIds.has('apiBaseUrl') && (
-        <SettingsItem label={t('apiBaseUrl')} description={t('apiBaseUrlDesc')}>
-          <input
-            type="text"
-            value={isApiBaseUrlSetByEnv ? '' : (settings.apiBaseUrl || '')}
-            onChange={e => onSettingsChange({ apiBaseUrl: e.target.value })}
-            disabled={isApiBaseUrlSetByEnv}
-            placeholder={
-              isApiBaseUrlSetByEnv
-                ? t('apiKeyEnvVar')
-                : settings.llmProvider === 'openai'
-                  ? 'https://api.openai.com'
-                  : 'https://generativelanguage.googleapis.com'
-            }
-            className="input-glass w-60"
-          />
-        </SettingsItem>
-      )}
-      {visibleIds.has('temperature') && (
-        <SettingsItem label={t('temperature')} description={t('temperatureDesc')}>
-          <div className="flex items-center gap-4 w-60">
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={settings.temperature}
-              onChange={e => onSettingsChange({ temperature: parseFloat(e.target.value) })}
-              className="w-full"
-            />
-            <span className="font-mono text-sm">{settings.temperature.toFixed(1)}</span>
-          </div>
-        </SettingsItem>
-      )}
-      {visibleIds.has('contextLength') && (
-        <SettingsItem label={t('contextLength')} description={t('contextLengthDesc')}>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="0"
-              step="1"
-              value={settings.contextLength}
-              onChange={e => onSettingsChange({ contextLength: parseInt(e.target.value, 10) })}
-              className="input-glass w-24"
-            />
-          </div>
-        </SettingsItem>
-      )}
-      {visibleIds.has('enableSearch') && (
-        <SettingsItem label={t('enableSearch')} description={t('enableSearchDesc')}>
-          <Switch size="sm" checked={settings.enableSearch} onChange={e => onSettingsChange({ enableSearch: e.target.checked })} />
-        </SettingsItem>
-      )}
-    </>
+    </div>
   );
 };

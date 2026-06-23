@@ -12,7 +12,7 @@ const defaultSettings: Settings = {
   colorPalette: 'neutral',
   customColor: undefined,
   apiKey: [],
-  defaultModel: '',
+  lastSelectedModel: undefined,
   defaultPersona: 'default-math-assistant',
   autoTitleGeneration: true,
   titleGenerationModel: '',
@@ -87,11 +87,18 @@ export const useSettings = () => {
     const loadedSettings = loadSettings();
     const initialSettings = { ...defaultSettings, ...loadedSettings };
 
-    // 优先使用环境变量配置（每次启动都重新读取）
+    // 如果有环境变量配置
     if (envConfig) {
       initialSettings.llmProvider = envConfig.provider;
-      initialSettings.apiKey = [envConfig.apiKey];
-      initialSettings.apiBaseUrl = envConfig.apiBaseUrl;
+
+      // 关键修改：只有在用户启用了自定义 API 配置时，才保留用户的设置
+      // 否则，清空 apiKey 和 apiBaseUrl，避免暴露环境变量
+      if (!initialSettings.useCustomApi) {
+        // 用户未启用自定义，清空这些字段，实际使用时从环境变量读取
+        initialSettings.apiKey = [];
+        initialSettings.apiBaseUrl = '';
+      }
+      // 如果用户启用了自定义，保留 loadedSettings 中的值
     }
 
     // 如果没有环境变量配置，保持用户之前的手动配置或默认值
@@ -107,11 +114,11 @@ export const useSettings = () => {
   useEffect(() => {
     if (!isStorageLoaded) return;
 
-    // 保存设置时，排除 apiKey 和 apiBaseUrl（如果来自环境变量）
+    // 保存设置时，排除 apiKey 和 apiBaseUrl（如果来自环境变量且用户未启用自定义）
     // 这样环境变量不会被缓存到 localStorage
     const settingsToSave = { ...settings };
-    if (hasEnvApiKey) {
-      // 环境变量有配置，不保存敏感信息到 localStorage
+    if ((hasEnvApiKey || isApiBaseUrlSetByEnv) && !settings.useCustomApi) {
+      // 环境变量有配置且用户未启用自定义，不保存 API 配置到 localStorage
       delete (settingsToSave as Record<string, unknown>).apiKey;
       delete (settingsToSave as Record<string, unknown>).apiBaseUrl;
     }
@@ -133,31 +140,80 @@ export const useSettings = () => {
   }, [settings, isStorageLoaded, setLanguage]);
 
   useEffect(() => {
-    const apiKeys = settings.apiKey || (process.env.API_KEY ? [process.env.API_KEY] : []);
-    if (isStorageLoaded && apiKeys.length > 0) {
-      const llmService = createLLMService(settings);
-      llmService.getAvailableModels(apiKeys[0], settings.apiBaseUrl).then(models => {
-        if (!models || models.length === 0) return;
-        setAvailableModels(models);
-        setSettings(current => {
-          const newDefaults: Partial<Settings> = {};
-          if (!models.includes(current.defaultModel)) {
-            newDefaults.defaultModel = models[0] || '';
-          }
-          // 标题生成模型逻辑：优先使用环境变量，否则取列表最后一位
-          const envTitleModel = process.env.TITLE_MODEL_NAME?.trim();
-          if (envTitleModel) {
-            // 环境变量有配置，使用环境变量
-            newDefaults.titleGenerationModel = envTitleModel;
-          } else if (!models.includes(current.titleGenerationModel)) {
-            // 环境变量没有配置，取列表最后一位
-            newDefaults.titleGenerationModel = models[models.length - 1] || '';
-          }
-          return Object.keys(newDefaults).length > 0 ? { ...current, ...newDefaults } : current;
-        });
+    if (!isStorageLoaded) return;
+
+    const customModelsList = settings.customModels
+      ? settings.customModels.split(/[\n,]+/).map(m => m.trim()).filter(Boolean)
+      : [];
+
+    // 先展示用户手填的模型，避免接口拉取卡住时选择器一直为空。
+    if (customModelsList.length > 0) {
+      setAvailableModels(currentModels => {
+        const mergedModels = [...new Set([...currentModels, ...customModelsList])];
+        return mergedModels.length === currentModels.length &&
+          mergedModels.every((model, index) => model === currentModels[index])
+          ? currentModels
+          : mergedModels;
+      });
+    } else {
+      setAvailableModels(currentModels => {
+        if (currentModels.length === 0) return currentModels;
+        return [];
       });
     }
-  }, [isStorageLoaded, settings.apiKey, settings.apiBaseUrl, settings.llmProvider]);
+
+    // 获取实际使用的 API Key 和 Base URL
+    let actualApiKey = '';
+    let actualApiBaseUrl = '';
+
+    const shouldUseManualConfig = settings.useCustomApi || !envConfig;
+
+    if (shouldUseManualConfig) {
+      // 用户启用了自定义配置
+      const apiKeys = settings.apiKey || [];
+      actualApiKey = apiKeys.length > 0 ? apiKeys[0] : '';
+      actualApiBaseUrl = settings.apiBaseUrl || '';
+    } else if (envConfig) {
+      // 用户未启用自定义，使用环境变量
+      actualApiKey = envConfig.apiKey;
+      actualApiBaseUrl = envConfig.apiBaseUrl;
+    }
+
+    const applyModels = (fetchedModels: string[]) => {
+      const allModels = [...new Set([...fetchedModels, ...customModelsList])];
+
+      if (allModels.length === 0) return;
+
+      setAvailableModels(allModels);
+      setSettings(current => {
+        const newDefaults: Partial<Settings> = {};
+        // 如果 lastSelectedModel 不在模型列表中，清空它（会自动使用第一个模型）
+        if (current.lastSelectedModel && !allModels.includes(current.lastSelectedModel)) {
+          newDefaults.lastSelectedModel = undefined;
+        }
+        // 标题生成模型逻辑：优先使用环境变量，否则取列表最后一位
+        const envTitleModel = process.env.TITLE_MODEL_NAME?.trim();
+        if (envTitleModel) {
+          // 环境变量有配置，使用环境变量
+          newDefaults.titleGenerationModel = envTitleModel;
+        } else if (!allModels.includes(current.titleGenerationModel)) {
+          // 环境变量没有配置，取列表最后一位
+          newDefaults.titleGenerationModel = allModels[allModels.length - 1] || '';
+        }
+        return Object.keys(newDefaults).length > 0 ? { ...current, ...newDefaults } : current;
+      });
+    };
+
+    if (!actualApiKey) {
+      applyModels([]);
+      return;
+    }
+
+    const llmService = createLLMService(settings);
+    llmService.getAvailableModels(actualApiKey, actualApiBaseUrl)
+      .then(applyModels)
+      .catch(() => applyModels([]));
+  }, [isStorageLoaded, settings.apiKey, settings.apiBaseUrl, settings.llmProvider, settings.useCustomApi, settings.customModels]);
 
   return { settings, setSettings, availableModels, isStorageLoaded };
 };
