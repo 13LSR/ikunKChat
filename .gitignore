@@ -23,6 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 .env
+workers/.dev.vars
+workers/.wrangler/
 
 
 dev-dist/

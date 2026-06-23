@@ -18,6 +18,7 @@ export interface UserUpdatePreference {
 
 const UPDATE_PREFERENCES_KEY = 'kchat_update_preferences';
 const CURRENT_VERSION = packageJson.version;
+const ENABLE_BUILT_IN_UPDATE_NOTICES = false;
 
 class UpdateService {
   // 获取当前版本
@@ -27,6 +28,10 @@ class UpdateService {
 
   // 获取所有更新日志
   getAllUpdates(): Record<string, VersionInfo> {
+    if (!ENABLE_BUILT_IN_UPDATE_NOTICES) {
+      return {};
+    }
+
     const result: Record<string, VersionInfo> = {};
 
     Object.keys(updatesConfig).forEach(version => {
@@ -57,6 +62,10 @@ class UpdateService {
 
   // 检查是否有未读的重要更新
   hasUnreadImportantUpdate(): boolean {
+    if (!ENABLE_BUILT_IN_UPDATE_NOTICES) {
+      return false;
+    }
+
     const preferences = this.getUserPreferences();
     const updates = this.getAllUpdates();
 
@@ -125,6 +134,10 @@ class UpdateService {
 
   // 检查是否应该显示更新通知
   shouldShowUpdateNotice(): boolean {
+    if (!ENABLE_BUILT_IN_UPDATE_NOTICES) {
+      return false;
+    }
+
     const preferences = this.getUserPreferences();
     const latestVersion = this.getLatestVersion();
 

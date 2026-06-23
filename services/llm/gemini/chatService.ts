@@ -2,6 +2,7 @@ import { GenerateContentResponse, Type } from "@google/genai";
 import { Message, FileAttachment, Settings, Persona } from '../../../types';
 import { executeWithKeyRotation, executeStreamWithKeyRotation } from './apiExecutor';
 import { prepareChatPayload } from "./payloadBuilder";
+import { authService } from '../../authService';
 
 // New helper function for the dedicated title generation API
 async function generateTitleWithDedicatedAPI(prompt: string): Promise<{ title: string }> {
@@ -50,6 +51,44 @@ async function generateTitleWithDedicatedAPI(prompt: string): Promise<{ title: s
 }
 
 export async function generateChatDetails(apiKeys: string[], prompt: string, model: string, settings: Settings): Promise<{ title: string }> {
+  if (settings.llmProvider === 'proxy' || settings.llmProvider === 'openai') {
+    const baseUrl = (settings.apiBaseUrl || process.env.OPENAI_API_BASE_URL || 'https://api.openai.com').trim().replace(/\/$/, '');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (settings.llmProvider === 'proxy') {
+      Object.assign(headers, authService.getProxyAuthorizationHeaders());
+    } else if (apiKeys[0]) {
+      headers.Authorization = `Bearer ${apiKeys[0]}`;
+    }
+
+    try {
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          stream: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Title API request failed with status ${response.status}: ${errorBody}`);
+      }
+
+      const data = await response.json();
+      const title = data.choices?.[0]?.message?.content?.trim().replace(/["']/g, '');
+      if (title) {
+        return { title };
+      }
+    } catch (error) {
+      console.error('OpenAI-compatible title generation failed:', error);
+    }
+  }
+
   // Check if dedicated title generation API is configured
   if (process.env.TITLE_API_URL && process.env.TITLE_API_KEY && process.env.TITLE_MODEL_NAME) {
     return generateTitleWithDedicatedAPI(prompt);

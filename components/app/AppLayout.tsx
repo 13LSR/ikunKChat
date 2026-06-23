@@ -1,6 +1,5 @@
 import React from 'react';
 import { Sidebar } from '../sidebar/Sidebar';
-import { UpdateIndicator } from '../UpdateIndicator';
 import { ToastContainer } from '../ToastContainer';
 import { ChatSession, Folder } from '../../types';
 
@@ -23,13 +22,6 @@ interface AppLayoutProps {
   onOpenArchive: () => void;
   onToggleMobileSidebar: () => void;
   onSidebarStateChange: (state: { isCollapsed: boolean }) => void;
-
-  // Update props
-  updateAvailable: boolean;
-  isCheckingUpdate: boolean;
-  onCheckForUpdates: () => void;
-  onUpdateNow: () => void;
-  versionInfo: any;
 
   // Content
   children: React.ReactNode;
@@ -57,11 +49,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   onToggleMobileSidebar,
   onSidebarStateChange,
 
-  updateAvailable,
-  isCheckingUpdate,
-  onCheckForUpdates,
-  onUpdateNow,
-  versionInfo,
   children,
 }) => {
   return (
@@ -88,14 +75,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           onOpenArchive={onOpenArchive}
           onToggleMobileSidebar={onToggleMobileSidebar}
           onSidebarStateChange={onSidebarStateChange}
-        >
-          <UpdateIndicator
-            updateAvailable={updateAvailable}
-            isCheckingUpdate={isCheckingUpdate}
-            onClick={onCheckForUpdates}
-            versionInfo={versionInfo}
-          />
-        </Sidebar>
+        />
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col h-full overflow-hidden">

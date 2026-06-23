@@ -13,19 +13,22 @@ const PasswordView: React.FC<PasswordViewProps> = ({ onVerified }) => {
   const [inputPassword, setInputPassword] = useState('');
   const [error, setError] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   
-  // Get password from environment variable
-  const VITE_ACCESS_PASSWORD = (import.meta as any).env.VITE_ACCESS_PASSWORD;
-
-  const handlePasswordSubmit = (e: React.FormEvent) => {
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsVerifying(true);
     
     // 使用认证服务验证密码
-    if (authService.verifyPassword(inputPassword)) {
-      onVerified(rememberMe);
-    } else {
-      setError(t('incorrect_password'));
+    try {
+      if (await authService.verifyPassword(inputPassword, rememberMe)) {
+        onVerified(rememberMe);
+      } else {
+        setError(t('incorrect_password'));
+      }
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -107,8 +110,9 @@ const PasswordView: React.FC<PasswordViewProps> = ({ onVerified }) => {
         <button
           type="submit"
           className="login-button"
+          disabled={isVerifying}
         >
-          {t('continue')}
+          {isVerifying ? '...' : t('continue')}
         </button>
       </form>
     </div>

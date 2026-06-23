@@ -23,6 +23,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
   const [isLoading, setIsLoading] = useState(false);
   const isCancelledRef = useRef(false);
   let inactivityTimer: NodeJS.Timeout; // For stream watchdog
+  const workerApiBaseUrl = ((import.meta as any).env?.VITE_WORKER_API_BASE_URL || '').trim();
 
   const handleCancel = useCallback(() => {
     isCancelledRef.current = true;
@@ -30,9 +31,11 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
   }, []);
 
   const _initiateStream = useCallback(async (chatId: string, historyForAPI: Message[], personaId: string | null | undefined, titleGenerationMode: 'INITIAL' | 'RECURRING' | null = null, availableModels: string[] = []) => {
-    const hasProviderEnvConfig = settings.llmProvider === 'openai'
-      ? !!process.env.OPENAI_API_KEY?.trim()
-      : !!(process.env.GEMINI_API_KEY?.trim() || process.env.API_KEY?.trim());
+    const hasProviderEnvConfig = settings.llmProvider === 'proxy'
+      ? !!workerApiBaseUrl
+      : settings.llmProvider === 'openai'
+        ? !!process.env.OPENAI_API_KEY?.trim()
+        : !!(process.env.GEMINI_API_KEY?.trim() || process.env.API_KEY?.trim());
     const shouldUseManualConfig = settings.useCustomApi || !hasProviderEnvConfig;
 
     // 获取 API Key：如果用户启用了自定义，使用用户的配置；否则使用环境变量
@@ -42,14 +45,16 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
       apiKeys = settings.apiKey && settings.apiKey.length > 0 ? settings.apiKey : [];
     } else {
       // 用户未启用自定义，使用环境变量
-      const envKey = settings.llmProvider === 'openai'
-        ? process.env.OPENAI_API_KEY
-        : process.env.GEMINI_API_KEY || process.env.API_KEY;
+      const envKey = settings.llmProvider === 'proxy'
+        ? 'worker-proxy'
+        : settings.llmProvider === 'openai'
+          ? process.env.OPENAI_API_KEY
+          : process.env.GEMINI_API_KEY || process.env.API_KEY;
       apiKeys = envKey ? [envKey] : [];
     }
 
     if (apiKeys.length === 0) {
-        const providerName = settings.llmProvider === 'openai' ? 'OpenAI' : 'Gemini';
+        const providerName = settings.llmProvider === 'proxy' ? 'Worker Proxy' : settings.llmProvider === 'openai' ? 'OpenAI' : 'Gemini';
         addToast(`Please set your ${providerName} API key in Settings.`, 'error');
         setIsLoading(false);
         return;
@@ -92,9 +97,11 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
         apiBaseUrl = settings.apiBaseUrl || '';
       } else {
         // 用户未启用自定义，使用环境变量
-        apiBaseUrl = settings.llmProvider === 'openai'
-          ? (process.env.OPENAI_API_BASE_URL || '')
-          : (process.env.API_BASE_URL || '');
+        apiBaseUrl = settings.llmProvider === 'proxy'
+          ? workerApiBaseUrl
+          : settings.llmProvider === 'openai'
+            ? (process.env.OPENAI_API_BASE_URL || '')
+            : (process.env.API_BASE_URL || '');
       }
 
       const chatRequest: ChatRequest = {
@@ -197,7 +204,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
         // 只在既没有主回复内容也没有思考内容时才报错
         if (!streamHadError && fullResponse.trim().length === 0 && accumulatedThoughts.trim().length === 0 && chunkCount > 0) {
           streamHadError = true;
-          const providerName = settings.llmProvider === 'openai' ? 'OpenAI' : 'Google';
+          const providerName = settings.llmProvider === 'proxy' ? 'Worker Proxy' : settings.llmProvider === 'openai' ? 'OpenAI' : 'Google';
           fullResponse = `${providerName} did not return a message. This could be due to safety settings or other restrictions.`;
           addToast(fullResponse, 'error');
         }
@@ -233,14 +240,19 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
               const conversationForTitle = historyForTitle.map(m => `${m.role}: ${m.content}`).join('\n');
               const fullPrompt = `${TITLE_GENERATION_PROMPT}\n\n**CONVERSATION:**\n${conversationForTitle}`;
               
-              const apiKeys = settings.apiKey && settings.apiKey.length > 0
-                ? settings.apiKey
-                : (process.env.API_KEY ? [process.env.API_KEY] : []);
+              const apiKeys = settings.llmProvider === 'proxy' && workerApiBaseUrl
+                ? ['worker-proxy']
+                : settings.apiKey && settings.apiKey.length > 0
+                  ? settings.apiKey
+                  : (process.env.API_KEY ? [process.env.API_KEY] : []);
 
               if (apiKeys.length > 0) {
                 const triggerReason = titleGenerationMode === 'INITIAL' ? '第二轮用户对话后' : '周期性更新';
                 console.log(`[标题生成] ✨ 触发 - ${triggerReason}`);
-                generateChatDetails(apiKeys, fullPrompt, settings.titleGenerationModel, settings).then(({ title }) => {
+                const titleSettings = settings.llmProvider === 'proxy'
+                  ? { ...settings, apiBaseUrl: workerApiBaseUrl }
+                  : settings;
+                generateChatDetails(apiKeys, fullPrompt, settings.titleGenerationModel, titleSettings).then(({ title }) => {
                   console.log(`[标题生成] ✅ 应用 - 标题: \"${title}\"`);
                   setChats(p => p.map(c => c.id === chatId ? { ...c, title } : c));
                 }).catch(error => {
@@ -253,7 +265,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
         }
       }
     }
-  }, [settings, setChats, activeChat, personas, addToast]);
+  }, [settings, setChats, activeChat, personas, addToast, workerApiBaseUrl]);
 
   const handleSendMessage = useCallback(async (content: string, files: File[] = [], pdfDocuments?: PDFParseResult[]) => {
     // 串行处理文件以避免内存峰值

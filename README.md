@@ -324,6 +324,15 @@ npm run build
 
 ## 环境变量配置
 
+> Security note: for Cloudflare Pages production, prefer the Worker proxy in `docs/cloudflare-worker-proxy.md`.
+> Set only `VITE_WORKER_API_BASE_URL` in the frontend. Do not put API keys or `VITE_ACCESS_PASSWORD`
+> into Pages frontend variables, because Vite bundles client-visible values into browser assets.
+
+```env
+VITE_WORKER_API_BASE_URL="https://ikunkchat-ai-proxy.your-account.workers.dev"
+VITE_TITLE_MODEL_NAME="model-a"
+```
+
 ### 核心配置
 
 ```env

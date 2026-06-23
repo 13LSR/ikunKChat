@@ -56,7 +56,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({ settings, on
       skipSyncRef.current = true;
 
       const patch: Partial<Settings> = {};
-      if (config.provider === 'gemini' || config.provider === 'openai') {
+      if (config.provider === 'gemini' || config.provider === 'openai' || config.provider === 'proxy') {
         patch.llmProvider = config.provider;
       }
       if (Array.isArray(config.apiKey)) {

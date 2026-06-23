@@ -30,14 +30,7 @@ export const AppContainer: React.FC = () => {
   const {
     hasConsented,
     handlePrivacyConsent,
-    needRefresh,
-    updateStatus,
-    updateServiceWorker,
-    checkForUpdates,
     showUpdateNotice,
-    isCheckingUpdate,
-    handleUpdateNow,
-    handleCheckForUpdates,
     handleCloseUpdateNotice,
     handleDismissUpdateNotice,
     getLatestVersion
@@ -177,11 +170,6 @@ export const AppContainer: React.FC = () => {
       onOpenArchive={() => handleOpenView('archive')}
       onToggleMobileSidebar={toggleMobileSidebar}
       onSidebarStateChange={handleSidebarStateChange}
-      updateAvailable={needRefresh}
-      isCheckingUpdate={isCheckingUpdate}
-      onCheckForUpdates={handleCheckForUpdates}
-      onUpdateNow={handleUpdateNow}
-      versionInfo={getLatestVersion()}
     >
       <AppContent
         currentView={currentView}

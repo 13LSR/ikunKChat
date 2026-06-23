@@ -8,6 +8,10 @@ import { authService } from '../services/authService';
 export const useAuth = () => {
   // 初始化认证状态
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    if (authService.isProxyConfigured()) {
+      return authService.isAuthenticated();
+    }
+
     // 检查是否设置了环境变量密码
     const envPassword = (import.meta as any).env.VITE_ACCESS_PASSWORD;
     
@@ -56,10 +60,29 @@ export const useAuth = () => {
   }, []);
 
   // 检查是否设置了环境变量密码
-  const hasPassword = (() => {
+  const [hasPassword, setHasPassword] = useState(() => {
+    if (authService.isProxyConfigured()) {
+      return true;
+    }
+
     const envPassword = (import.meta as any).env.VITE_ACCESS_PASSWORD;
-    return envPassword && envPassword.trim() !== '';
-  })();
+    return !!(envPassword && envPassword.trim() !== '');
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    authService.isWorkerPasswordEnabled().then((enabled) => {
+      if (cancelled || enabled === null) return;
+
+      setHasPassword(enabled);
+      setIsAuthenticated(enabled ? authService.isAuthenticated() : true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 处理验证成功
   const handleVerified = (rememberMe: boolean) => {

@@ -1,11 +1,13 @@
 import { Settings } from '../../types';
 import { GeminiService } from './gemini/GeminiService';
 import { OpenAIService } from './openai/OpenAIService';
+import { ProxyLLMService } from './proxy/ProxyLLMService';
 import { ILLMService } from './types';
 
 // 为每个服务创建一个单例，避免在每次调用时重复实例化，提高效率。
 const geminiService = new GeminiService();
 const openAIService = new OpenAIService();
+const proxyLLMService = new ProxyLLMService();
 
 /**
  * LLM 服务工厂函数
@@ -18,6 +20,8 @@ export function createLLMService(settings: Settings): ILLMService {
   const provider = settings.llmProvider || 'gemini';
 
   switch (provider) {
+    case 'proxy':
+      return proxyLLMService;
     case 'openai':
       return openAIService;
     case 'gemini':

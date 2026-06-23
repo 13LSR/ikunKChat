@@ -9,6 +9,9 @@ interface AuthStorage {
   removeItem(key: string): void;
 }
 
+const getWorkerApiBaseUrl = (): string =>
+  ((import.meta as any).env?.VITE_WORKER_API_BASE_URL || '').trim().replace(/\/$/, '');
+
 class AuthService {
   private static instance: AuthService;
   private readonly AUTH_KEY = 'kchat-auth';
@@ -17,6 +20,8 @@ class AuthService {
   private readonly AUTH_EXPIRY_DAYS = 30; // 认证状态有效期30天
   private readonly TEMP_ACCESS_TOKEN_KEY = 'kchat-temp-access-token';
   private readonly TEMP_ACCESS_TOKEN_PARAM = 'temp_token';
+  private readonly WORKER_TOKEN_KEY = 'kchat-worker-auth-token';
+  private readonly WORKER_TOKEN_EXPIRY_KEY = 'kchat-worker-auth-expiry';
   
   // 存储策略列表，按优先级排序
   private storageStrategies: AuthStorage[] = [
@@ -45,6 +50,10 @@ class AuthService {
    * 使用多重存储策略，确保在任何情况下都能正确获取认证状态
    */
   isAuthenticated(): boolean {
+    if (this.hasValidWorkerToken()) {
+      return true;
+    }
+
     // 首先检查临时访问令牌
     const tempToken = sessionStorage.getItem(this.TEMP_ACCESS_TOKEN_KEY);
     if (tempToken === 'true') {
@@ -120,6 +129,8 @@ class AuthService {
         console.error('Failed to clear remember me flag:', error);
       }
     }
+
+    this.notifyAuthChanged();
   }
 
   /**
@@ -137,6 +148,7 @@ class AuthService {
     try {
       localStorage.removeItem(this.REMEMBER_ME_KEY);
       this.clearTempAccessToken();
+      this.clearWorkerToken();
     } catch (error) {
       console.error('Failed to clear remember me flag or temp access token:', error);
     }
@@ -147,7 +159,28 @@ class AuthService {
    * @param password 用户输入的密码
    * @returns 密码是否正确
    */
-  verifyPassword(password: string): boolean {
+  async verifyPassword(password: string, rememberMe: boolean = false): Promise<boolean> {
+    if (this.isProxyConfigured()) {
+      try {
+        const response = await fetch(`${this.getProxyBaseUrl()}/auth/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password, rememberMe }),
+        });
+
+        if (!response.ok) return false;
+
+        const data = await response.json();
+        if (typeof data?.token === 'string') {
+          this.setWorkerToken(data.token, data.expiresAt, rememberMe);
+          return true;
+        }
+      } catch (error) {
+        console.error('Failed to verify password with Worker proxy:', error);
+      }
+    }
+
+    // Legacy local password mode. Prefer Worker auth for deployed builds.
     // 只使用环境变量中的站长密码
     const envPassword = (import.meta as any).env.VITE_ACCESS_PASSWORD;
     return password === (envPassword || '');
@@ -178,6 +211,92 @@ class AuthService {
    */
   clearTempAccessToken(): void {
     sessionStorage.removeItem(this.TEMP_ACCESS_TOKEN_KEY);
+  }
+
+  isProxyConfigured(): boolean {
+    return this.getProxyBaseUrl().length > 0;
+  }
+
+  getProxyBaseUrl(): string {
+    return getWorkerApiBaseUrl();
+  }
+
+  async isWorkerPasswordEnabled(): Promise<boolean | null> {
+    if (!this.isProxyConfigured()) return null;
+
+    try {
+      const response = await fetch(`${this.getProxyBaseUrl()}/auth/status`, {
+        method: 'GET',
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      return !!data?.enabled;
+    } catch (error) {
+      console.error('Failed to read Worker auth status:', error);
+      return null;
+    }
+  }
+
+  getProxyAuthorizationHeaders(): Record<string, string> {
+    const token = this.getWorkerToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  private setWorkerToken(token: string, expiresAt?: number, rememberMe: boolean = false): void {
+    try {
+      const expiry = typeof expiresAt === 'number'
+        ? expiresAt
+        : Date.now() + this.AUTH_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
+      const storage = rememberMe ? localStorage : sessionStorage;
+      storage.setItem(this.WORKER_TOKEN_KEY, token);
+      storage.setItem(this.WORKER_TOKEN_EXPIRY_KEY, String(expiry));
+      this.notifyAuthChanged();
+    } catch (error) {
+      console.error('Failed to save Worker auth token:', error);
+    }
+  }
+
+  private getWorkerToken(): string | null {
+    if (!this.hasValidWorkerToken()) return null;
+
+    try {
+      return localStorage.getItem(this.WORKER_TOKEN_KEY) || sessionStorage.getItem(this.WORKER_TOKEN_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  private hasValidWorkerToken(): boolean {
+    try {
+      const token = localStorage.getItem(this.WORKER_TOKEN_KEY) || sessionStorage.getItem(this.WORKER_TOKEN_KEY);
+      const expiryRaw = localStorage.getItem(this.WORKER_TOKEN_EXPIRY_KEY) || sessionStorage.getItem(this.WORKER_TOKEN_EXPIRY_KEY);
+      const expiry = expiryRaw ? Number(expiryRaw) : 0;
+
+      if (!token || !expiry || Date.now() >= expiry) {
+        this.clearWorkerToken();
+        return false;
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private clearWorkerToken(): void {
+    try {
+      localStorage.removeItem(this.WORKER_TOKEN_KEY);
+      localStorage.removeItem(this.WORKER_TOKEN_EXPIRY_KEY);
+      sessionStorage.removeItem(this.WORKER_TOKEN_KEY);
+      sessionStorage.removeItem(this.WORKER_TOKEN_EXPIRY_KEY);
+    } catch (error) {
+      console.error('Failed to clear Worker auth token:', error);
+    }
+  }
+
+  private notifyAuthChanged(): void {
+    window.dispatchEvent(new Event('kchat-auth-changed'));
   }
 
   /**

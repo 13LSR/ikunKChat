@@ -3,7 +3,7 @@ import { Message, Persona, Settings } from '../../types';
 /**
  * 定义支持的LLM提供商
  */
-export type LLMProvider = 'gemini' | 'openai';
+export type LLMProvider = 'gemini' | 'openai' | 'proxy';
 
 /**
  * 定义单个模型的配置参数

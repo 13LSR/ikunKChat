@@ -32,10 +32,20 @@ const defaultSettings: Settings = {
 // 检测环境变量中是否有 API Key 配置
 const hasGeminiEnvKey = !!(process.env.GEMINI_API_KEY?.trim());
 const hasOpenAIEnvKey = !!(process.env.OPENAI_API_KEY?.trim());
-const hasEnvApiKey = hasGeminiEnvKey || hasOpenAIEnvKey;
+const workerApiBaseUrl = ((import.meta as any).env?.VITE_WORKER_API_BASE_URL || '').trim();
+const hasWorkerProxy = !!workerApiBaseUrl;
+const hasEnvApiKey = hasGeminiEnvKey || hasOpenAIEnvKey || hasWorkerProxy;
 
 // 从环境变量获取 API 配置
 const getEnvApiConfig = () => {
+  if (hasWorkerProxy) {
+    return {
+      provider: 'proxy' as const,
+      apiKey: 'worker-proxy',
+      apiBaseUrl: workerApiBaseUrl,
+    };
+  }
+
   const useEmergency = USE_EMERGENCY_ROUTE && process.env.FALLBACK_API_BASE_URL;
 
   if (useEmergency) {
@@ -78,6 +88,7 @@ export const useSettings = () => {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isStorageLoaded, setIsStorageLoaded] = useState(false);
+  const [authVersion, setAuthVersion] = useState(0);
   const { setLanguage } = useLocalization();
 
   // 环境变量配置（不存到 localStorage）
@@ -90,6 +101,12 @@ export const useSettings = () => {
     // 如果有环境变量配置
     if (envConfig) {
       initialSettings.llmProvider = envConfig.provider;
+
+      if (envConfig.provider === 'proxy') {
+        initialSettings.useCustomApi = false;
+        initialSettings.apiKey = [];
+        initialSettings.apiBaseUrl = '';
+      }
 
       // 关键修改：只有在用户启用了自定义 API 配置时，才保留用户的设置
       // 否则，清空 apiKey 和 apiBaseUrl，避免暴露环境变量
@@ -213,7 +230,13 @@ export const useSettings = () => {
     llmService.getAvailableModels(actualApiKey, actualApiBaseUrl)
       .then(applyModels)
       .catch(() => applyModels([]));
-  }, [isStorageLoaded, settings.apiKey, settings.apiBaseUrl, settings.llmProvider, settings.useCustomApi, settings.customModels]);
+  }, [isStorageLoaded, settings.apiKey, settings.apiBaseUrl, settings.llmProvider, settings.useCustomApi, settings.customModels, authVersion]);
+
+  useEffect(() => {
+    const handleAuthChanged = () => setAuthVersion(version => version + 1);
+    window.addEventListener('kchat-auth-changed', handleAuthChanged);
+    return () => window.removeEventListener('kchat-auth-changed', handleAuthChanged);
+  }, []);
 
   return { settings, setSettings, availableModels, isStorageLoaded };
 };
@@ -221,6 +244,7 @@ export const useSettings = () => {
 // 导出环境变量配置状态，供设置界面使用
 export const isApiKeySetByEnv = hasEnvApiKey;
 export const isApiBaseUrlSetByEnv = !!(
+  workerApiBaseUrl ||
   process.env.API_BASE_URL ||
   process.env.OPENAI_API_BASE_URL ||
   (USE_EMERGENCY_ROUTE && process.env.FALLBACK_API_BASE_URL)
