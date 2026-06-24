@@ -20,6 +20,7 @@ class CharVideo {
     this.points = ' .,`"^:!?o+*wU$HB%@&#M'.split('');
     this.frameId = null;
     this.objectUrl = null;
+    this.hasFrameWarning = false;
 
     this.charVideo = config.canvasElement;
     this.charVideo.width = this.canvasWidth;
@@ -37,10 +38,12 @@ class CharVideo {
       this.video.loop = true;
       this.video.playsInline = true;
       this.video.preload = 'auto';
+      this.video.crossOrigin = 'anonymous';
     }
 
     if (src) {
       this.video.src = src;
+      this.video.load();
     }
   }
 
@@ -92,10 +95,23 @@ class CharVideo {
   }
 
   renderFrame = () => {
-    if (!this.video?.paused && !this.video?.ended) {
-      this.ctx.drawImage(this.video, 0, 0, this.width, this.height);
-      this.reDraw(this.loadData());
-      this.drawText();
+    const canDrawFrame =
+      this.video &&
+      !this.video.paused &&
+      !this.video.ended &&
+      this.video.readyState >= 2;
+
+    if (canDrawFrame) {
+      try {
+        this.ctx.drawImage(this.video, 0, 0, this.width, this.height);
+        this.reDraw(this.loadData());
+        this.drawText();
+      } catch (error) {
+        if (!this.hasFrameWarning) {
+          console.warn('[CharVideo] Failed to draw video frame:', error);
+          this.hasFrameWarning = true;
+        }
+      }
     }
 
     this.frameId = requestAnimationFrame(this.renderFrame);
