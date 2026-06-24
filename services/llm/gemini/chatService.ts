@@ -1,5 +1,5 @@
-import { GenerateContentResponse, Type } from "@google/genai";
-import { Message, FileAttachment, Settings, Persona } from '../../../types';
+import type { GenerateContentResponse } from "@google/genai";
+import { Message, Settings, Persona } from '../../../types';
 import { executeWithKeyRotation, executeStreamWithKeyRotation } from './apiExecutor';
 import { prepareChatPayload } from "./payloadBuilder";
 import { authService } from '../../authService';

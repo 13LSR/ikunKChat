@@ -72,17 +72,17 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({ options, value, onCh
       
       <div
           ref={optionsRef}
-          className={`absolute z-20 mt-2 w-full glass-pane rounded-[var(--radius-2xl)] p-1 shadow-lg max-h-60 overflow-y-auto transition-opacity duration-200 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+          className={`absolute z-20 mt-2 w-full glass-pane rounded-[var(--radius-2xl)] p-1 max-h-60 overflow-y-auto transition-opacity duration-200 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
           role="listbox"
         >
           {options.map(option => (
             <div
               key={option.value}
               onClick={() => { onChange(option.value); setIsOpen(false); }}
-              className={`px-3 py-2 rounded-[var(--radius-2xl)] cursor-pointer transition-colors duration-150 ${
+              className={`custom-select-option px-3 py-2 rounded-[var(--radius-2xl)] cursor-pointer transition-colors duration-150 ${
                 value === option.value
-                  ? 'bg-[var(--accent-color)] text-[var(--accent-color-text)] font-semibold'
-                  : 'text-[var(--text-color)] hover:bg-[rgba(0,122,255,0.2)] dark:hover:bg-[rgba(10,132,255,0.25)]'
+                  ? 'active font-semibold'
+                  : 'text-[var(--text-color)]'
               }`}
               role="option"
               aria-selected={value === option.value}

@@ -34,8 +34,8 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({ settings, onSe
         <SettingsItem label={t('theme')} description={t('themeDesc')}>
           <CustomSelect
             options={[
-              { value: 'apple-light', label: '苹果光明' },
-              { value: 'apple-dark', label: '苹果黑暗' },
+              { value: 'apple-light', label: '新拟物明亮' },
+              { value: 'apple-dark', label: '新拟物暗色' },
             ]}
             value={settings.theme}
             onChange={(value) => onSettingsChange({ theme: value as 'apple-light' | 'apple-dark' })}

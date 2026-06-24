@@ -3,9 +3,8 @@ import { ChatSession, Message, MessageRole, Settings, Persona, FileAttachment, P
 import { generateChatDetails } from '../services/llm/gemini/chatService'; // 临时保留用于标题生成
 import { createLLMService } from '../services/llm/llmFactory';
 import { ChatRequest, StreamChunk } from '../services/llm/types';
-import { fileToData } from '../utils/fileUtils';
+import { extractDocxText, isDocxFile } from '../utils/documentText';
 import { TITLE_GENERATION_PROMPT } from '../data/prompts';
-import { saveAttachment } from '../services/indexedDBService';
 import { getUserFacingMessage, logError } from '../utils/errorUtils';
 import { PDFParseResult } from '../services/pdfService';
 
@@ -19,6 +18,52 @@ interface UseChatMessagingProps {
   availableModels: string[];
 }
 
+const PUBLIC_SERVICE_ERROR = '服务暂时不可用，请稍后再试或联系站长。';
+
+const getPublicChatErrorMessage = (error: unknown, fallback = PUBLIC_SERVICE_ERROR): string => {
+  const message = getUserFacingMessage(error, fallback);
+  return /api|api key|apikey|worker|proxy|openai|gemini|provider|401|403|404|500|status/i.test(message)
+    ? fallback
+    : message;
+};
+
+const TEXT_FILE_EXTENSIONS = new Set([
+  '.txt', '.md',
+]);
+
+const TEXT_FILE_MIME_TYPES = new Set([
+  'text/plain',
+  'text/markdown',
+]);
+
+const MAX_DOCUMENT_CONTEXT_CHARS = 16000;
+
+const isReadableTextFile = (file: File): boolean => {
+  if (file.type.startsWith('text/')) return true;
+  if (TEXT_FILE_MIME_TYPES.has(file.type)) return true;
+
+  const lowerName = file.name.toLowerCase();
+  return Array.from(TEXT_FILE_EXTENSIONS).some(ext => lowerName.endsWith(ext));
+};
+
+const appendDocumentContext = (current: string, label: string, text: string): string => {
+  const normalizedText = text.replace(/\r\n/g, '\n').trim();
+  if (!normalizedText) return current;
+
+  const remaining = MAX_DOCUMENT_CONTEXT_CHARS - current.length;
+  if (remaining <= 0) return current;
+
+  const header = `\n\n[文件内容 - ${label}]\n`;
+  const availableForText = Math.max(remaining - header.length, 0);
+  if (availableForText <= 0) return current;
+
+  const clippedText = normalizedText.length > availableForText
+    ? `${normalizedText.slice(0, Math.max(availableForText - 38, 0))}\n\n[内容过长，已截断。]`
+    : normalizedText;
+
+  return `${current}${header}${clippedText}`;
+};
+
 export const useChatMessaging = ({ settings, activeChat, personas, setChats, setActiveChatId, addToast, availableModels }: UseChatMessagingProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const isCancelledRef = useRef(false);
@@ -27,8 +72,27 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
 
   const handleCancel = useCallback(() => {
     isCancelledRef.current = true;
-    setIsLoading(false); 
-  }, []);
+    setIsLoading(false);
+    addToast('已停止生成', 'info');
+
+    const chatId = activeChat?.id;
+    if (!chatId) return;
+
+    setChats(prev => prev.map(chat => {
+      if (chat.id !== chatId) return chat;
+
+      const messages = chat.messages.map((message, index, allMessages) => {
+        const isLastPlaceholder =
+          index === allMessages.length - 1 &&
+          message.role === MessageRole.MODEL &&
+          message.content === '...';
+
+        return isLastPlaceholder ? { ...message, content: '已停止生成。' } : message;
+      });
+
+      return { ...chat, messages };
+    }));
+  }, [activeChat?.id, addToast, setChats]);
 
   const _initiateStream = useCallback(async (chatId: string, historyForAPI: Message[], personaId: string | null | undefined, titleGenerationMode: 'INITIAL' | 'RECURRING' | null = null, availableModels: string[] = []) => {
     const hasProviderEnvConfig = settings.llmProvider === 'proxy'
@@ -54,8 +118,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
     }
 
     if (apiKeys.length === 0) {
-        const providerName = settings.llmProvider === 'proxy' ? 'Worker Proxy' : settings.llmProvider === 'openai' ? 'OpenAI' : 'Gemini';
-        addToast(`Please set your ${providerName} API key in Settings.`, 'error');
+        addToast('服务暂时不可用，请稍后再试或联系站长。', 'error');
         setIsLoading(false);
         return;
     }
@@ -69,6 +132,12 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
     const chatSession = activeChat && activeChat.id === chatId
         ? activeChat
         : { id: chatId, messages: historyForAPI, model: defaultModel, personaId, title: "New Chat", createdAt: Date.now(), folderId: null };
+
+    if (!chatSession.model) {
+      addToast('模型列表正在加载，请稍后再试。', 'info');
+      setIsLoading(false);
+      return;
+    }
 
     const activePersona = chatSession.personaId ? personas.find(p => p && p.id === chatSession.personaId) : null;
 
@@ -178,8 +247,8 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
             break;
           case 'error':
             streamHadError = true;
-            fullResponse = chunk.payload;
-            addToast(chunk.payload, 'error');
+            fullResponse = getPublicChatErrorMessage(chunk.payload);
+            addToast(fullResponse, 'error');
             break;
           case 'end':
             // Stream finished gracefully
@@ -204,8 +273,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
         // 只在既没有主回复内容也没有思考内容时才报错
         if (!streamHadError && fullResponse.trim().length === 0 && accumulatedThoughts.trim().length === 0 && chunkCount > 0) {
           streamHadError = true;
-          const providerName = settings.llmProvider === 'proxy' ? 'Worker Proxy' : settings.llmProvider === 'openai' ? 'OpenAI' : 'Google';
-          fullResponse = `${providerName} did not return a message. This could be due to safety settings or other restrictions.`;
+          fullResponse = '模型没有返回内容，可能是请求被安全策略拦截或服务暂时繁忙。请换个说法再试一次。';
           addToast(fullResponse, 'error');
         }
         setChats(prev => prev.map(c => c.id === chatId ? { ...c, messages: c.messages.map(m => m.id === modelMessage.id ? { ...m, content: fullResponse || '...', thoughts: settings.showThoughts ? accumulatedThoughts : undefined, groundingMetadata: finalGroundingMetadata, thinkingTime } : m) } : c));
@@ -214,7 +282,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
       logError(error, 'ChatStream');
       if (!isCancelledRef.current) {
         streamHadError = true;
-        const errorMessage = getUserFacingMessage(error, '请求过程中发生错误。');
+        const errorMessage = getPublicChatErrorMessage(error);
         addToast(errorMessage, 'error');
         setChats(p => p.map(c => c.id === chatId ? { ...c, messages: c.messages.map(m => m.id === modelMessage.id ? { ...m, content: errorMessage } : m) } : c));
       }
@@ -270,53 +338,56 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
   const handleSendMessage = useCallback(async (content: string, files: File[] = [], pdfDocuments?: PDFParseResult[]) => {
     // 串行处理文件以避免内存峰值
     const attachments: FileAttachment[] = [];
+    let documentContextForAPI = '';
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      
-      try {
-        const attachment = await fileToData(file);
-        
-        // 验证附件数据有效性
-        if (!attachment.data || typeof attachment.data !== 'string') {
-          addToast(`文件 "${file.name}" 数据无效，已跳过`, 'error');
-          continue;
+
+      if (isDocxFile(file)) {
+        try {
+          const text = await extractDocxText(file);
+          documentContextForAPI = appendDocumentContext(documentContextForAPI, file.name, text);
+          attachments.push({
+            name: file.name,
+            mimeType: file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          });
+        } catch (error) {
+          logError(error, 'DocxFileProcessing', {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+          });
+          addToast(`文件 "${file.name}" 读取失败，请确认它是有效的 docx 文件`, 'error');
         }
-        
-        // 生成唯一 ID 并保存到 IndexedDB
-        const attachmentId = `att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        if (attachment.data) {
-          try {
-            await saveAttachment(attachmentId, attachment.data, attachment.mimeType, attachment.name);
-          } catch (dbError) {
-            // 如果 IndexedDB 保存失败，继续使用 data 字段（降级处理）
-          }
-        }
-        
-        // 保存引用（ID）到消息中，保留 data 用于当前会话
-        const attachmentObject = {
-          id: attachmentId,
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          data: attachment.data
-        };
-        
-        attachments.push(attachmentObject);
-        
-      } catch (error) {
-        logError(error, 'AttachmentProcessing', {
-          fileName: file.name,
-          fileType: file.type,
-          fileSize: file.size,
-        });
-        const friendlyMessage = getUserFacingMessage(error, '未知错误');
-        addToast(`文件 "${file.name}" 处理失败: ${friendlyMessage}`, 'error');
+
+        continue;
       }
+
+      if (isReadableTextFile(file)) {
+        try {
+          const text = await file.text();
+          documentContextForAPI = appendDocumentContext(documentContextForAPI, file.name, text);
+          attachments.push({
+            name: file.name,
+            mimeType: file.type || 'text/plain',
+          });
+        } catch (error) {
+          logError(error, 'TextFileProcessing', {
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+          });
+          addToast(`文件 "${file.name}" 读取失败，请换成 UTF-8 文本后重试`, 'error');
+        }
+
+        continue;
+      }
+
+      addToast(`文件 "${file.name}" 暂不支持，本站目前只支持上传 txt、pdf、md、docx 文件`, 'error');
     }
     
     // 处理PDF文档 - 提取摘要信息和全文
     let pdfSummaries: PDFSummary[] | undefined;
-    let pdfContextForAPI = '';
     
     if (pdfDocuments && pdfDocuments.length > 0) {
       // 生成PDF摘要信息（用于显示在气泡中）
@@ -330,9 +401,9 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
       }));
       
       // 提取PDF全文（仅用于发送给API，不保存到消息中）
-      pdfContextForAPI = pdfDocuments.map(pdf =>
-        `\n\n[PDF文档内容 - ${pdf.fileName}]\n${pdf.extractedText.substring(0, 30000)}`
-      ).join('\n');
+      pdfDocuments.forEach(pdf => {
+        documentContextForAPI = appendDocumentContext(documentContextForAPI, pdf.fileName, pdf.extractedText);
+      });
     }
       
     // 用户消息：仅保存用户输入的文本和PDF摘要，不包含PDF全文
@@ -380,16 +451,16 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
       setChats(prev => prev.map(c => c.id === currentChatId ? { ...c, messages: [...c.messages, userMessage] } : c));
     }
 
-    // 如果有PDF内容，需要将其附加到发送给API的历史记录中
+    // 如果有文件内容，需要将其附加到发送给API的历史记录中
     let historyForAPI = history;
-    if (pdfContextForAPI) {
-      // 创建一个临时的用户消息副本，包含PDF全文（仅用于API）
+    if (documentContextForAPI) {
+      // 创建一个临时的用户消息副本，包含文件全文（仅用于API）
       const lastMessage = history[history.length - 1];
-      const messageWithPDF = {
+      const messageWithDocumentContext = {
         ...lastMessage,
-        content: lastMessage.content + pdfContextForAPI
+        content: `${lastMessage.content || '请根据我上传的文件内容进行回答。'}${documentContextForAPI}`
       };
-      historyForAPI = [...history.slice(0, -1), messageWithPDF];
+      historyForAPI = [...history.slice(0, -1), messageWithDocumentContext];
     }
 
     await _initiateStream(currentChatId, historyForAPI, currentPersonaId, titleGenerationMode, availableModels);

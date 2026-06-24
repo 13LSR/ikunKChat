@@ -12,9 +12,9 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({ title, isVisib
     }
 
     return (
-        <>
+        <section className="settings-section">
             <h3 className="settings-section-title">{title}</h3>
             {children}
-        </>
+        </section>
     );
 };

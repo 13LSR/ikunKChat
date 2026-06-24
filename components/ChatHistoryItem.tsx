@@ -48,7 +48,7 @@ export const ChatHistoryItem: React.FC<ChatHistoryItemProps> = (
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onClick={(e) => { e.preventDefault(); onSelect(); }}
-            className={`history-item group flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-2xl)] transition-colors text-left relative ${isActive ? 'bg-[var(--accent-color)] text-[var(--accent-color-text)]' : 'text-[var(--text-color)] hover:bg-black/10 dark:hover:bg-white/10'
+            className={`history-item group flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-2xl)] transition-colors text-left relative ${isActive ? 'active' : ''
                 } ${isBeingDeleted ? 'deleting' : ''} ${isBeingArchived ? 'archiving' : ''} ${isNew ? 'history-item-enter' : ''} ${isHiding ? 'hiding' : ''}`}
         >
             <span className="truncate flex-grow">{chat.title}</span>

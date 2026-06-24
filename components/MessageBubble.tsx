@@ -1,62 +1,39 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Message, MessageRole, Settings, Persona } from '../types';
 import { Icon } from './Icon';
-import { MarkdownRenderer } from './MarkdownRenderer';
 import { useLocalization } from '../contexts/LocalizationContext';
 import { MessageActions } from './MessageActions';
 import { getAttachment } from '../services/indexedDBService';
 import { LazyImage } from './LazyImage';
 import { useChatContext } from '../contexts/ChatContext';
+import { IkunLoadingIndicator } from './IkunLoadingIndicator';
 
-const TypingIndicator: React.FC<{ thoughts?: string | null }> = ({ thoughts }) => {
-  const [text, setText] = useState('');
+const MarkdownRenderer = React.lazy(() =>
+  import('./MarkdownRenderer').then(module => ({ default: module.MarkdownRenderer }))
+);
+
+const TypingIndicator: React.FC<{ hasThoughts?: boolean }> = ({ hasThoughts }) => {
+  const [dots, setDots] = useState('');
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    const hasThoughts = thoughts && thoughts.trim().length > 0;
-
-    if (hasThoughts) {
-      // Stage 2: Typewriter effect for "唱、跳、rap..." with static prefix
-      const baseText = 'AI 正在';
-      const animatedText = '唱、跳、rap...';
-      let currentIndex = 0;
-      let isPaused = false;
-
-      interval = setInterval(() => {
-        if (isPaused) return;
-
-        if (currentIndex < animatedText.length) {
-          setText(baseText + animatedText.substring(0, currentIndex + 1));
-          currentIndex++;
-        } else {
-          // Pause at the end of the line before restarting
-          isPaused = true;
-          setTimeout(() => {
-            currentIndex = 0;
-            setText(baseText); // Reset to just the base text
-            isPaused = false;
-          }, 500); // Hold the full text for 500ms
-        }
-      }, 150); // Adjust typing speed here
-    } else {
-      // Stage 1: "..." animation
-      const dots = ['\u00A0', '.', '..', '...'];
-      let dotIndex = 0;
-
-      interval = setInterval(() => {
-        setText(dots[dotIndex]);
-        dotIndex = (dotIndex + 1) % dots.length;
-      }, 500);
-    }
+    const states = ['', '.', '..', '...'];
+    let index = 0;
+    const interval = setInterval(() => {
+      index = (index + 1) % states.length;
+      setDots(states[index]);
+    }, 500);
 
     return () => {
       clearInterval(interval);
     };
-  }, [thoughts && thoughts.trim().length > 0]);
+  }, []);
 
   return (
-    <div className="whitespace-pre-wrap flex items-center gap-2">
-      <span>{text}</span>
+    <div className="ikun-loading-copy" aria-live="polite">
+      <span className="ikun-loading-title">思考中{dots}</span>
+      {hasThoughts && (
+        <span className="ikun-loading-subtitle">思考过程正在上方更新</span>
+      )}
     </div>
   );
 };
@@ -90,6 +67,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo((props) =>
 
   const [isBeingDeleted, setIsBeingDeleted] = useState(false);
   const [isRawView, setIsRawView] = useState(false);
+
+  useEffect(() => {
+    if (isLastMessageLoading && hasThoughts) {
+      setIsThoughtsOpen(true);
+    }
+  }, [isLastMessageLoading, hasThoughts]);
   
   // 用于存储从 IndexedDB 加载的图片数据
   const [loadedAttachments, setLoadedAttachments] = useState<Record<string, string>>({});
@@ -160,7 +143,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo((props) =>
                         )}
                     </button>
                     <div className={`thoughts-expander-content ${isThoughtsOpen ? 'expanded' : ''}`}>
-                        <div className="inner-content"><MarkdownRenderer content={message.thoughts!} theme={settings.theme} /></div>
+                        <div className="inner-content">
+                          <React.Suspense fallback={<div className="markdown-content whitespace-pre-wrap">{message.thoughts}</div>}>
+                            <MarkdownRenderer content={message.thoughts!} theme={settings.theme} />
+                          </React.Suspense>
+                        </div>
                     </div>
                 </div>
             )}
@@ -258,13 +245,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo((props) =>
                   </div>
                 )}
                 {(isLastMessageLoading && !hasContent) ? (
-                  <TypingIndicator thoughts={message.thoughts} />
+                  <div className="ikun-loading-state">
+                    <TypingIndicator hasThoughts={Boolean(hasThoughts)} />
+                    <IkunLoadingIndicator />
+                  </div>
                 ) : (
                   hasContent && (
                     <div className="grid items-start">
                       {/* Rendered View */}
                       <div className={`col-start-1 row-start-1 grid transition-all duration-300 ease-in-out ${isRawView ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'}`} aria-hidden={isRawView}>
                         <div className="overflow-hidden break-words text-justify">
+                          <React.Suspense fallback={<div className="markdown-content whitespace-pre-wrap">{message.content}</div>}>
                             <MarkdownRenderer
                               content={message.content}
                               theme={settings.theme}
@@ -272,6 +263,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = React.memo((props) =>
                               messageId={message.id}
                               isBatchRendered={props.isBatchRendered}
                             />
+                          </React.Suspense>
                         </div>
                       </div>
                       {/* Raw View */}

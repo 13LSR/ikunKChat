@@ -42,7 +42,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, 
     }, []);
 
     return (
-        <header className="pt-6 pb-4 px-3 flex-shrink-0 flex items-center justify-between gap-2 relative z-[150]">
+        <header className="chat-header-surface flex-shrink-0 flex items-center justify-between gap-2 relative z-[150]">
             <div className="flex items-center gap-2 min-w-0">
                 <button
                     onClick={onToggleMobileSidebar}
@@ -96,7 +96,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, 
                 )}
             </div>
             {/* 桌面端按钮 - 始终显示 */}
-            <div className="hidden md:flex items-center gap-1 ml-auto">
+            <div className="hidden md:flex items-center gap-2 ml-auto">
                 <button onClick={() => onNewChat()} className="p-1.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10" data-tooltip={t('newChat')} data-tooltip-placement="left">
                     <Icon icon="plus" className="w-5 h-5" />
                 </button>
@@ -106,7 +106,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, 
             </div>
             
             {/* 移动端按钮 - 始终显示 */}
-            <div className="md:hidden flex items-center gap-1 ml-auto">
+            <div className="md:hidden flex items-center gap-2 ml-auto">
                 <button onClick={() => onNewChat()} className="p-1.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10" data-tooltip={t('newChat')} data-tooltip-placement="left">
                     <Icon icon="plus" className="w-5 h-5" />
                 </button>
@@ -121,12 +121,12 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, 
                     </button>
                     {isMobileModelSelectorOpen && (
                         <div className="absolute top-16 right-0 z-10 w-48 max-h-60 overflow-y-auto">
-                            <div className="glass-pane rounded-[var(--radius-2xl)] p-2 shadow-lg">
+                            <div className="glass-pane rounded-[var(--radius-2xl)] p-2">
                                 {availableModels.map(model => (
                                     <div
                                         key={model}
                                         onClick={() => handleMobileModelSelect(model)}
-                                        className={`p-2 rounded-lg cursor-pointer flex items-center gap-2 ${currentModel === model ? 'bg-[var(--accent-color)] text-[var(--accent-color-text)]' : 'hover:bg-black/10 dark:hover:bg-white/10'}`}
+                                        className={`custom-select-option p-2 rounded-[var(--radius-2xl)] cursor-pointer flex items-center gap-2 ${currentModel === model ? 'active' : ''}`}
                                     >
                                         <Icon icon="chip" className="w-4 h-4" />
                                         <span className="text-sm">{model}</span>

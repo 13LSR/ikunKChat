@@ -35,6 +35,25 @@ const hasOpenAIEnvKey = !!(process.env.OPENAI_API_KEY?.trim());
 const workerApiBaseUrl = ((import.meta as any).env?.VITE_WORKER_API_BASE_URL || '').trim();
 const hasWorkerProxy = !!workerApiBaseUrl;
 const hasEnvApiKey = hasGeminiEnvKey || hasOpenAIEnvKey || hasWorkerProxy;
+const faviconByTheme: Record<Settings['theme'], string> = {
+  'apple-light': 'https://tc.lcxj.dpdns.org/docs/mgb.ico',
+  'apple-dark': 'https://tc.lcxj.dpdns.org/docs/mgh.ico',
+};
+
+const syncFavicon = (theme: Settings['theme']) => {
+  const href = faviconByTheme[theme] || faviconByTheme['apple-light'];
+  let favicon = document.querySelector<HTMLLinkElement>('link#app-favicon');
+
+  if (!favicon) {
+    favicon = document.createElement('link');
+    favicon.id = 'app-favicon';
+    favicon.rel = 'icon';
+    document.head.appendChild(favicon);
+  }
+
+  favicon.type = 'image/x-icon';
+  favicon.href = href;
+};
 
 // 从环境变量获取 API 配置
 const getEnvApiConfig = () => {
@@ -146,6 +165,7 @@ export const useSettings = () => {
 
     // Apply theme class
     document.body.classList.add(`theme-${settings.theme}`);
+    syncFavicon(settings.theme);
 
     document.body.dataset.font = settings.fontFamily;
 

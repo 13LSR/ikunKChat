@@ -97,7 +97,7 @@ export const UpdateSettings: React.FC<UpdateSettingsProps> = ({
               <div className="space-y-2">
                 <button
                   onClick={onUpdateNow}
-                  className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-full hover:from-green-600 hover:to-green-700 transition-all shadow-lg"
+                  className="neu-button w-full flex items-center justify-center gap-3 px-4 py-3 text-[var(--text-color)] rounded-[var(--radius-2xl)]"
                 >
                   <Icon icon="download" className="w-5 h-5" />
                   <span>{t('updateNow')}</span>

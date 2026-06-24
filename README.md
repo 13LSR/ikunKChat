@@ -367,7 +367,7 @@ VITE_OPENAI_API_BASE_URL="https://api.openai.com"  # 支持兼容接口
 # 📋 模型列表 (可选)
 # ============================================
 # 用逗号分隔，第一个为默认模型
-VITE_GEMINI_MODELS="gemini-2.5-pro-preview-06-05-maxthinking,gemini-2.5-flash"
+VITE_GEMINI_MODELS="gemini-auto"
 VITE_OPENAI_MODELS=""  # 留空自动获取
 
 # ============================================

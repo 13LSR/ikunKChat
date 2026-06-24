@@ -192,7 +192,7 @@ switchModel: 'Switch Model',
     currentVersion: 'Current Version',
     webmaster: 'Webmaster Information',
     webmasterName: 'Webmaster',
-    webmasterDesc: 'This site is developed and maintained by webmaster bin',
+    webmasterDesc: 'This site is secondarily developed and maintained by Wuguang',
     // Archive View Placeholders
     noResultsFound: "No Results Found",
     noArchivedChats: "No Archived Chats",

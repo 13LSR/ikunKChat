@@ -1,4 +1,4 @@
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import type { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { KeyManager } from '../../keyManager';
 
 /**
@@ -51,6 +51,7 @@ export async function executeWithKeyRotation<T>(
     }
 
     const trimmedApiEndpoint = apiEndpoint?.trim();
+    const { GoogleGenAI } = await import("@google/genai");
 
     for (let i = 0; i < keyManager.getTotalKeys(); i++) {
         const { key } = keyManager.getNextKey();
@@ -98,6 +99,7 @@ export async function* executeStreamWithKeyRotation<T extends GenerateContentRes
     }
 
     const trimmedApiEndpoint = apiEndpoint?.trim();
+    const { GoogleGenAI } = await import("@google/genai");
 
     let lastError: unknown = null;
     let success = false;

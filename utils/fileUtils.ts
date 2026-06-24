@@ -1,5 +1,4 @@
 import { FileAttachment } from '../types';
-import imageCompression from 'browser-image-compression';
 
 // 定义压缩选项
 const compressionOptions = {
@@ -12,7 +11,8 @@ export const fileToData = async (file: File): Promise<FileAttachment> => {
   try {
     // 检查是否为图片文件
     if (file.type.startsWith('image/')) {
-      
+      const { default: imageCompression } = await import('browser-image-compression');
+
       // 压缩图片
       let compressedFile;
       try {
@@ -92,22 +92,29 @@ export const fileToData = async (file: File): Promise<FileAttachment> => {
 };
 
 const supportedMimeTypes = new Set([
-  // Images
-  'image/png', 'image/jpeg', 'image/webp',
-  // Audio
-  'audio/mp3', 'audio/mpeg', 'audio/wav', 'audio/x-aiff', 'audio/aac', 'audio/ogg', 'audio/flac',
-  // Video
-  'video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/x-flv', 'video/mpg', 'video/webm', 'video/x-ms-wmv', 'video/3gpp',
-  // Text/Docs
-  'text/plain', 'application/pdf', 'application/rtf', 'text/csv', 'text/tab-separated-values', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel',
-  // Code (common types)
-  'text/x-c', 'text/x-c++', 'text/x-python', 'text/x-java-source', 'application/x-httpd-php', 'application/sql', 'text/html', 'text/css', 'text/javascript', 'application/json', 'text/x-typescript', 'text/markdown'
+  'text/plain',
+  'text/markdown',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
+
+const supportedFileExtensions = new Set([
+  '.txt',
+  '.md',
+  '.pdf',
+  '.docx',
 ]);
 
 export const getSupportedMimeTypes = (): string => {
-  return Array.from(supportedMimeTypes).join(',');
+  return '.txt,.md,.pdf,.docx';
 };
 
 export const isFileSupported = (file: File): boolean => {
-  return supportedMimeTypes.has(file.type);
+  const lowerName = file.name.toLowerCase();
+  if (Array.from(supportedFileExtensions).some(ext => lowerName.endsWith(ext))) {
+    return true;
+  }
+
+  return file.type === 'application/pdf' ||
+    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 };

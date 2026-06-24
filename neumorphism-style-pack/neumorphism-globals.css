@@ -1,0 +1,114 @@
+/* Neumorphism 全局样式 */
+
+/* 背景色 */
+:root {
+  --neu-bg: #e0e5ec;
+  --neu-bg-light: #f0f0f3;
+  --neu-shadow-dark: #b8bcc2;
+  --neu-shadow-light: #ffffff;
+  --neu-accent: #6d5dfc;
+  --neu-text: #333333;
+  --neu-text-muted: #6b7280;
+}
+
+/* 凸起效果 */
+.neu-raised {
+  background: var(--neu-bg);
+  border-radius: 12px;
+  box-shadow:
+    8px 8px 16px var(--neu-shadow-dark),
+    -8px -8px 16px var(--neu-shadow-light);
+}
+
+.neu-raised-sm {
+  box-shadow:
+    4px 4px 8px var(--neu-shadow-dark),
+    -4px -4px 8px var(--neu-shadow-light);
+}
+
+/* 凹陷效果 */
+.neu-pressed {
+  background: var(--neu-bg);
+  border-radius: 12px;
+  box-shadow:
+    inset 8px 8px 16px var(--neu-shadow-dark),
+    inset -8px -8px 16px var(--neu-shadow-light);
+}
+
+.neu-pressed-sm {
+  box-shadow:
+    inset 4px 4px 8px var(--neu-shadow-dark),
+    inset -4px -4px 8px var(--neu-shadow-light);
+}
+
+/* 悬停效果 */
+.neu-hover:hover {
+  box-shadow:
+    4px 4px 8px var(--neu-shadow-dark),
+    -4px -4px 8px var(--neu-shadow-light);
+}
+
+/* 激活效果 */
+.neu-active:active {
+  box-shadow:
+    inset 4px 4px 8px var(--neu-shadow-dark),
+    inset -4px -4px 8px var(--neu-shadow-light);
+}
+
+/* 圆形元素 */
+.neu-circle {
+  border-radius: 50%;
+}
+@keyframes neumorphism-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes neumorphism-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.neumorphism-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.neumorphism-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: linear-gradient(135deg, rgba(224, 229, 236, 0.05), transparent);
+  pointer-events: none;
+}
+
+.neumorphism-card:hover::before {
+  opacity: 1;
+}
+
+.neumorphism-gradient {
+  background: linear-gradient(135deg, #e0e5ec, #6d5dfc);
+}
+
+.neumorphism-gradient-text {
+  background: linear-gradient(135deg, #e0e5ec, #6d5dfc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.neumorphism-frosted {
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  background: rgba(224, 229, 236, 0.08);
+}
+
+.neumorphism-accent-corner {
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 2rem), calc(100% - 2rem) 100%, 0 100%);
+}
+
+.neumorphism-animate-in {
+  animation: neumorphism-fade-in 0.5s ease-out both;
+}

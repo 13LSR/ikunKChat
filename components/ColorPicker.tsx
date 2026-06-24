@@ -62,25 +62,26 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               gap: '0.5rem',
               padding: '0.75rem',
               borderRadius: 'var(--radius-2xl)',
-              border: selectedColorId === palette.id && !customColor 
-                ? '2px solid var(--md-sys-color-primary)' 
-                : '1px solid var(--md-sys-color-outline-variant)',
+              border: '0',
               background: selectedColorId === palette.id && !customColor
-                ? 'color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent)'
-                : 'transparent',
+                ? 'var(--neu-accent-soft)'
+                : 'var(--neu-surface)',
+              boxShadow: selectedColorId === palette.id && !customColor
+                ? 'var(--neu-shadow-inset)'
+                : 'var(--neu-shadow-raised-sm)',
               cursor: 'pointer',
               transition: 'all 0.2s ease',
             }}
             onMouseEnter={(e) => {
               if (selectedColorId !== palette.id || customColor) {
-                e.currentTarget.style.borderColor = 'var(--md-sys-color-primary)';
-                e.currentTarget.style.transform = 'scale(1.05)';
+                e.currentTarget.style.background = 'var(--neu-accent-soft)';
+                e.currentTarget.style.boxShadow = 'var(--neu-shadow-hover)';
               }
             }}
             onMouseLeave={(e) => {
               if (selectedColorId !== palette.id || customColor) {
-                e.currentTarget.style.borderColor = 'var(--md-sys-color-outline-variant)';
-                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.background = 'var(--neu-surface)';
+                e.currentTarget.style.boxShadow = 'var(--neu-shadow-raised-sm)';
               }
             }}
           >
@@ -89,7 +90,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               height: '2.5rem',
               borderRadius: 'var(--radius-full)',
               background: palette.primaryLight,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              boxShadow: 'var(--neu-shadow-inset)',
             }} />
             <div style={{
               fontSize: '0.75rem',
@@ -119,23 +120,22 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             gap: '0.5rem',
             padding: '0.75rem',
             borderRadius: 'var(--radius-2xl)',
-            border: customColor 
-              ? '2px solid var(--md-sys-color-primary)' 
-              : '1px dashed var(--md-sys-color-outline-variant)',
-            background: customColor 
-              ? 'color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent)'
-              : 'transparent',
+            border: '0',
+            background: customColor
+              ? 'var(--neu-accent-soft)'
+              : 'var(--neu-surface)',
+            boxShadow: customColor ? 'var(--neu-shadow-inset)' : 'var(--neu-shadow-raised-sm)',
             color: 'var(--md-sys-color-on-surface)',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'var(--md-sys-color-primary)';
+            e.currentTarget.style.background = 'var(--neu-accent-soft)';
+            e.currentTarget.style.boxShadow = 'var(--neu-shadow-hover)';
           }}
           onMouseLeave={(e) => {
-            if (!customColor) {
-              e.currentTarget.style.borderColor = 'var(--md-sys-color-outline-variant)';
-            }
+            e.currentTarget.style.background = customColor ? 'var(--neu-accent-soft)' : 'var(--neu-surface)';
+            e.currentTarget.style.boxShadow = customColor ? 'var(--neu-shadow-inset)' : 'var(--neu-shadow-raised-sm)';
           }}
         >
           <Icon icon="palette" className="w-5 h-5" />
@@ -163,8 +163,9 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
         <div className="custom-color-input" style={{
           padding: '1rem',
           borderRadius: 'var(--radius-2xl)',
-          border: '1px solid var(--md-sys-color-outline-variant)',
-          background: 'color-mix(in srgb, var(--md-sys-color-on-surface) 3%, transparent)',
+          border: '0',
+          background: 'var(--neu-surface)',
+          boxShadow: 'var(--neu-shadow-raised-sm)',
         }}>
           <div style={{ marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>
             {language === 'zh' ? '输入HEX颜色值' : 'Enter HEX Color'}
@@ -195,7 +196,8 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               height: '2.5rem',
               borderRadius: 'var(--radius-2xl)',
               background: isValidHexColor(customInputValue) ? customInputValue : '#cccccc',
-              border: '2px solid var(--md-sys-color-outline-variant)',
+              border: '0',
+              boxShadow: 'var(--neu-shadow-inset)',
               flexShrink: 0,
             }} />
           </div>
@@ -225,9 +227,10 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               style={{ 
                 fontSize: '0.85rem', 
                 padding: '0.4rem 0.75rem',
-                background: 'var(--md-sys-color-primary)',
-                color: 'var(--md-sys-color-on-primary)',
+                background: 'var(--neu-accent-soft)',
+                color: 'var(--md-sys-color-on-surface)',
                 border: 'none',
+                boxShadow: 'var(--neu-shadow-inset)',
               }}
             >
               {language === 'zh' ? '应用' : 'Apply'}

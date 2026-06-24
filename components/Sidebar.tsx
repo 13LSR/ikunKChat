@@ -139,7 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
         <div className="flex-grow overflow-y-auto -mr-2 pr-2 pt-2">
           <div className="flex items-center justify-between mt-2 mb-1 px-2"><h2 className="text-sm font-semibold text-[var(--text-color-secondary)] uppercase tracking-wider">{t('history')}</h2><button onClick={onNewFolder} className="p-1 rounded-full text-[var(--text-color-secondary)] hover:text-[var(--text-color)]" data-tooltip={t('newFolder')} data-tooltip-placement="left"><Icon icon="folder-plus" className="w-5 h-5" /></button></div>
           
-          <nav className="flex flex-col gap-1">
+          <nav className="sidebar-history-list flex flex-col gap-2">
             {visibleFolders.map(folder => (
               <div key={folder.id} className={`folder-wrapper ${deletingFolderId === folder.id ? 'deleting' : ''} ${!prevFolderIdsRef.current.has(folder.id) ? 'history-item-enter' : ''} ${folder.isHiding ? 'hiding' : ''}`} onDrop={(e) => handleDrop(e, folder.id)} onDragOver={(e) => handleDragOver(e, folder.id)} onDragLeave={() => setDragOverTarget(null)}>
                 <div className={`folder-header ${dragOverTarget === folder.id ? 'drop-target' : ''}`} onClick={() => toggleFolder(folder.id)}>
@@ -151,8 +151,8 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
                     <button onClick={(e) => { e.stopPropagation(); handleDeleteFolderClick(folder.id); }} aria-label="Delete folder"><Icon icon="delete" className="w-4 h-4 text-red-500" /></button>
                   </div>
                 </div>
-                <div className="folder-content" style={{ maxHeight: openFolderIds.has(folder.id) ? `${folder.chats.filter(c => !c.isHiding).length * 52 + 8}px` : '0px' }}>
-                  <div className="flex flex-col gap-1 py-1">{folder.chats.map(renderChat)}</div>
+                <div className="folder-content" style={{ maxHeight: openFolderIds.has(folder.id) ? `${folder.chats.filter(c => !c.isHiding).length * 58 + 12}px` : '0px' }}>
+                  <div className="flex flex-col gap-2 py-2">{folder.chats.map(renderChat)}</div>
                 </div>
               </div>
             ))}
@@ -163,16 +163,16 @@ export const Sidebar: React.FC<SidebarProps> = (props) => {
           </nav>
         </div>
         
-        <div className="mt-auto pt-2">
-            <button onClick={onOpenPersonas} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-2xl)] text-[var(--text-color)] hover:bg-black/10 dark:hover:bg-white/10" data-tooltip={t('personas')} data-tooltip-placement="right">
+        <div className="sidebar-footer-actions mt-auto pt-3 flex flex-col gap-2">
+            <button onClick={onOpenPersonas} className="w-full flex items-center gap-3 px-3 py-3 rounded-[var(--radius-2xl)] text-[var(--text-color)] hover:bg-black/10 dark:hover:bg-white/10" data-tooltip={t('personas')} data-tooltip-placement="right">
                 <Icon icon="users" className="w-5 h-5" />
                 <span className="font-semibold">{t('personas')}</span>
             </button>
-            <button onClick={onOpenArchive} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-2xl)] text-[var(--text-color)] hover:bg-black/10 dark:hover:bg-white/10" data-tooltip={t('archiveDesc')} data-tooltip-placement="right">
+            <button onClick={onOpenArchive} className="w-full flex items-center gap-3 px-3 py-3 rounded-[var(--radius-2xl)] text-[var(--text-color)] hover:bg-black/10 dark:hover:bg-white/10" data-tooltip={t('archiveDesc')} data-tooltip-placement="right">
                 <Icon icon="archive" className="w-5 h-5" />
                 <span className="font-semibold">{t('archive')}</span>
             </button>
-            <button onClick={onOpenSettings} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-2xl)] text-[var(--text-color)] hover:bg-black/10 dark:hover:bg-white/10" data-tooltip={t('settings')} data-tooltip-placement="right">
+            <button onClick={onOpenSettings} className="w-full flex items-center gap-3 px-3 py-3 rounded-[var(--radius-2xl)] text-[var(--text-color)] hover:bg-black/10 dark:hover:bg-white/10" data-tooltip={t('settings')} data-tooltip-placement="right">
                 <Icon icon="settings" className="w-5 h-5" />
                 <span className="font-semibold">{t('settings')}</span>
             </button>

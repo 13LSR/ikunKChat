@@ -1,7 +1,7 @@
 import { ILLMService, LLMProvider, ChatRequest, StreamChunk } from '../types';
 import { prepareChatPayload } from './payloadBuilder';
 import { executeStreamWithKeyRotation } from './apiExecutor';
-import { GenerateContentResponse } from '@google/genai';
+import type { GenerateContentResponse } from '@google/genai';
 
 // 从 chatService.ts 迁移过来的辅助类型
 interface Part {
@@ -85,11 +85,13 @@ export class GeminiService implements ILLMService {
     const { messages, model, persona, config, apiKey, apiBaseUrl, showThoughts, enableSearch } = request;
 
     // 1. 准备 Payload
-    const { formattedHistory, configForApi } = prepareChatPayload(messages, config, persona, showThoughts, enableSearch);
-    
+    const conversationHistory = messages.slice(0, -1);
+    const { formattedHistory, configForApi } = prepareChatPayload(conversationHistory, config, persona, showThoughts, enableSearch);
+
     // 从最后一条用户消息中提取附件和文本内容
     const lastUserMessage = messages[messages.length - 1];
-    const attachments = lastUserMessage.attachments || [];
+    const attachments = (lastUserMessage.attachments || [])
+      .filter(att => att.data && typeof att.data === 'string');
     const newMessage = lastUserMessage.content;
 
     const messageParts: Part[] = attachments.map(att => ({

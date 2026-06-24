@@ -136,16 +136,16 @@ export const ComboBox: React.FC<ComboBoxProps> = ({
       </div>
 
       {isOpen && (
-        <div ref={optionsRef} className="absolute z-20 mt-2 w-full glass-pane rounded-[var(--radius-2xl)] p-1 shadow-lg max-h-60 overflow-y-auto">
+        <div ref={optionsRef} className="absolute z-20 mt-2 w-full glass-pane rounded-[var(--radius-2xl)] p-1 max-h-60 overflow-y-auto">
           {filteredOptions.length > 0 ? (
             filteredOptions.map((option, index) => (
               <div
                 key={option.value}
                 data-index={index}
                 onMouseDown={() => handleSelect(option.value)}
-                className={`px-3 py-2 rounded-[var(--radius-2xl)] cursor-pointer transition-colors duration-150 ${
+                className={`custom-select-option px-3 py-2 rounded-[var(--radius-2xl)] cursor-pointer transition-colors duration-150 ${
                   highlightedIndex === index
-                    ? 'bg-[rgba(0,122,255,0.2)] dark:bg-[rgba(10,132,255,0.25)]'
+                    ? 'active'
                     : 'text-[var(--text-color)]'
                 }`}
               >

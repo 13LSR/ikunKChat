@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { marked } from 'marked';
 import type { Tokens } from 'marked';
-import mermaid from 'mermaid';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
@@ -320,22 +319,23 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         }
     });
 
-    // Render Mermaid diagrams
-    try {
-        mermaid.initialize({
-            startOnLoad: false,
-            theme: theme === 'dark' ? 'dark' : 'default',
-            securityLevel: 'loose',
-            flowchart: { useMaxWidth: true },
-            sequence: { useMaxWidth: true },
-            gantt: { useMaxWidth: true },
-        });
-        const mermaidElements = currentRef.querySelectorAll<HTMLElement>('.mermaid');
-        if (mermaidElements.length > 0) {
-            mermaid.run({ nodes: mermaidElements });
-        }
-    } catch (error) {
-        console.error('Mermaid rendering error:', error);
+    const mermaidElements = Array.from(currentRef.querySelectorAll<HTMLElement>('.mermaid'));
+    if (mermaidElements.length > 0) {
+        import('mermaid')
+            .then(({ default: mermaid }) => {
+                mermaid.initialize({
+                    startOnLoad: false,
+                    theme: theme === 'dark' ? 'dark' : 'default',
+                    securityLevel: 'loose',
+                    flowchart: { useMaxWidth: true },
+                    sequence: { useMaxWidth: true },
+                    gantt: { useMaxWidth: true },
+                });
+                return mermaid.run({ nodes: mermaidElements });
+            })
+            .catch((error) => {
+                console.error('Mermaid rendering error:', error);
+            });
     }
 
     currentRef.addEventListener('click', handleCopyClick);

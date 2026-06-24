@@ -192,7 +192,7 @@ switchModel: '切换模型',
     currentVersion: '当前版本',
     webmaster: '站长信息',
     webmasterName: '站长',
-    webmasterDesc: '本站由站长bin开发和维护',
+    webmasterDesc: '本站由無光二次开发和维护',
     // Archive View Placeholders
     noResultsFound: "找不到结果",
     noArchivedChats: "没有归档的聊天",

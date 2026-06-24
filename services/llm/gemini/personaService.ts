@@ -1,8 +1,10 @@
-import { GenerateContentResponse, Type } from "@google/genai";
+import type { GenerateContentResponse } from "@google/genai";
 import { Persona, Settings } from '../../types';
 import { executeWithKeyRotation } from './apiExecutor';
 
 export async function generatePersonaUpdate(apiKeys: string[], model: string, currentPersona: Persona, userInstruction: string, settings: Settings): Promise<{ personaUpdate: Partial<Persona>, explanation: string }> {
+  const { Type } = await import("@google/genai");
+
   const systemPrompt = `你是一个AI助手，帮助用户配置聊天机器人的角色。用户将提供他们当前的角色配置（JSON对象）和如何修改的指令。
 你的任务是生成一个JSON对象，表示角色的*更新*字段，以及关于你所做的更改的简短友好的解释。
 

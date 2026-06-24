@@ -2,9 +2,6 @@
  * PDF解析服务
  * 使用 pdf.js 进行前端PDF文本提取
  */
-
-import * as pdfjsLib from 'pdfjs-dist';
-
 // PDF.js worker CDN 源列表 (按优先级排序)
 const WORKER_CDN_URLS = [
   'https://unpkg.com/pdfjs-dist@VERSION/build/pdf.worker.min.js',
@@ -13,8 +10,18 @@ const WORKER_CDN_URLS = [
   'https://esm.sh/pdfjs-dist@VERSION/build/pdf.worker.min.js'
 ];
 
+let pdfjsLibPromise: Promise<typeof import('pdfjs-dist')> | null = null;
+let workerSetupPromise: Promise<void> | null = null;
+
+async function loadPdfJs(): Promise<typeof import('pdfjs-dist')> {
+  const pdfjsLib = await (pdfjsLibPromise ??= import('pdfjs-dist'));
+  workerSetupPromise ??= setupPdfWorker(pdfjsLib);
+  await workerSetupPromise;
+  return pdfjsLib;
+}
+
 // 配置 PDF.js worker - 使用多 CDN 自动回退
-async function setupPdfWorker(): Promise<void> {
+async function setupPdfWorker(pdfjsLib: typeof import('pdfjs-dist')): Promise<void> {
   const version = pdfjsLib.version;
 
   for (const urlTemplate of WORKER_CDN_URLS) {
@@ -36,8 +43,6 @@ async function setupPdfWorker(): Promise<void> {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
   console.warn('[PDF.js] All CDNs failed, using default worker');
 }
-
-setupPdfWorker();
 
 export interface PDFParseResult {
   id: string;
@@ -71,6 +76,8 @@ export async function parsePDFFile(
   onProgress?: (progress: PDFParseProgress) => void
 ): Promise<PDFParseResult> {
   try {
+    const pdfjsLib = await loadPdfJs();
+
     // 读取文件为ArrayBuffer
     const arrayBuffer = await file.arrayBuffer();
     

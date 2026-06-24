@@ -63,7 +63,7 @@ export const WelcomeView: React.FC<WelcomeViewProps> = ({
       <div className="mt-12">
         <button
           onClick={handleStartChat}
-          className="py-2 px-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-medium transition-all hover:bg-gray-200 dark:hover:bg-gray-700 active:scale-95 shadow-sm"
+          className="neu-button py-2 px-6 rounded-[var(--radius-2xl)] text-[var(--text-color)] font-medium"
         >
           开始聊天
         </button>

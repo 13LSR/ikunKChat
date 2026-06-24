@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } f
 import { Icon } from '../Icon';
 import { useLocalization } from '../../contexts/LocalizationContext';
 import { useToast } from '../../contexts/ToastContext';
-import { getSupportedMimeTypes, isFileSupported } from '../../utils/fileUtils';
+import { isFileSupported } from '../../utils/fileUtils';
 import { ChatSession } from '../../types';
 import { ToolItem } from './ToolItem';
 import { ActiveToolIndicator } from './ActiveToolIndicator';
@@ -40,11 +40,18 @@ export interface FileWithId {
   id: string;
 }
 
+interface ParsingPDFState {
+  fileName: string;
+  message: string;
+  percentage: number;
+}
+
 export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(({ onSendMessage, isLoading, onCancel, toolConfig, onToolConfigChange, input, setInput, chatSession, availableModels, currentModel, onSetModelForActiveChat }, ref) => {
    const { t } = useLocalization();
   const { addToast } = useToast();
   const [files, setFiles] = useState<FileWithId[]>([]);
   const [pdfDocuments, setPdfDocuments] = useState<PDFParseResult[]>([]);
+  const [parsingPDFs, setParsingPDFs] = useState<Record<string, ParsingPDFState>>({});
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [isMobileModelSelectorOpen, setIsMobileModelSelectorOpen] = useState(false);
   
@@ -55,43 +62,12 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(({ onSendMessa
   const mobileModelSelectorRef = useRef<HTMLDivElement>(null);
   const [isMobileView, setIsMobileView] = useState(window.innerWidth < 768);
 
-  // 处理剪贴板粘贴事件
-  const handlePaste = async (e: ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-
-    const imageFiles: File[] = [];
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
-          imageFiles.push(file);
-        }
-      }
-    }
-
-    if (imageFiles.length > 0) {
-      e.preventDefault();
-      await addFiles(imageFiles);
-    }
-  };
-
   useEffect(() => {
     setFiles([]);
     setPdfDocuments([]);
+    setParsingPDFs({});
   }, [chatSession?.id]);
 
-  // 监听剪贴板粘贴事件
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    textarea.addEventListener('paste', handlePaste as any);
-    return () => {
-      textarea.removeEventListener('paste', handlePaste as any);
-    };
-  }, []);
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -126,6 +102,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(({ onSendMessa
     
     // 处理PDF文件 - 自动解析
     for (const pdfFile of pdfFiles) {
+      const parsingId = `${pdfFile.name}-${pdfFile.size}-${pdfFile.lastModified}`;
       const validation = validatePDFFile(pdfFile);
       if (!validation.valid) {
         addToast(`PDF "${pdfFile.name}": ${validation.error}`, 'error');
@@ -133,21 +110,44 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(({ onSendMessa
       }
       
       try {
-        addToast(`正在解析 "${pdfFile.name}"...`, 'info');
-        const result = await parsePDFFile(pdfFile);
+        setParsingPDFs(prev => ({
+          ...prev,
+          [parsingId]: {
+            fileName: pdfFile.name,
+            message: '准备解析...',
+            percentage: 0,
+          },
+        }));
+
+        const result = await parsePDFFile(pdfFile, (progress) => {
+          setParsingPDFs(prev => ({
+            ...prev,
+            [parsingId]: {
+              fileName: pdfFile.name,
+              message: progress.message || '正在解析...',
+              percentage: progress.percentage,
+            },
+          }));
+        });
         await savePDFDocument(result);
         setPdfDocuments(prev => [...prev, result]);
         addToast(`PDF "${result.fileName}" 解析成功`, 'success');
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : '解析失败';
         addToast(`PDF "${pdfFile.name}" 解析失败: ${errorMessage}`, 'error');
+      } finally {
+        setParsingPDFs(prev => {
+          const next = { ...prev };
+          delete next[parsingId];
+          return next;
+        });
       }
     }
     
     // 处理其他文件
     const supportedFiles = otherFiles.filter(isFileSupported);
     if (otherFiles.length - supportedFiles.length > 0) {
-      addToast(`${otherFiles.length - supportedFiles.length} file(s) have an unsupported format.`, 'error');
+      addToast('本站目前只支持上传 txt、pdf、md、docx 文件。', 'error');
     }
     if (supportedFiles.length > 0) {
       setFiles(prev => [...prev, ...supportedFiles.map(file => ({ file, id: crypto.randomUUID() }))]);
@@ -204,16 +204,49 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(({ onSendMessa
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-2 pt-0 flex flex-col relative">
-        <div ref={toolsWrapperRef} className={`tool-selector-options ${isToolsOpen ? 'visible' : ''}`} style={{backgroundColor: 'var(--glass-bg)', border: '1px solid var(--glass-border)', boxShadow: 'var(--shadow-md)'}}>
-            <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full p-2 text-left hover:bg-black/10 dark:hover:bg-white/10 flex items-center gap-3 text-[var(--text-color)]">
+    <form onSubmit={handleSubmit} className="chat-input-shell p-2 pt-0 flex flex-col relative">
+        <div
+          ref={toolsWrapperRef}
+          className={`tool-selector-options ${isToolsOpen ? 'visible' : ''}`}
+          style={{ backgroundColor: 'var(--neu-surface)', border: '0', boxShadow: 'var(--neu-shadow-raised)' }}
+        >
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full p-2 text-left hover:bg-black/10 dark:hover:bg-white/10 flex items-center gap-3 text-[var(--text-color)]"
+              title="本站目前只支持上传 txt、pdf、md、docx 文件。"
+              data-tooltip="本站目前只支持上传 txt、pdf、md、docx 文件。"
+              data-tooltip-placement="top"
+            >
                 <Icon icon="paperclip" className="w-4 h-4" />
-                <span>{t('attachFile') || '上传文件（PDF自动解析）'}</span>
+                <span>{t('attachFile') || '上传文件'}</span>
             </button>
-            <input ref={fileInputRef} type="file" onChange={handleFileChange} accept="image/*,.pdf,.txt,.md" multiple className="hidden" />
+            <input ref={fileInputRef} type="file" onChange={handleFileChange} accept=".txt,.pdf,.md,.docx" multiple className="hidden" />
         </div>
-        <div className="rounded-[var(--radius-2xl)] flex flex-col transition-all duration-300 focus-within:border-[var(--accent-color)] focus-within:ring-2 ring-[var(--accent-color)]" style={{backgroundColor: 'var(--glass-bg)', border: '1px solid var(--glass-border)', boxShadow: 'var(--shadow-md)'}}>
+        <div
+          className="rounded-[var(--radius-2xl)] flex flex-col transition-all duration-300"
+          style={{ backgroundColor: 'var(--neu-pressed)', border: '0', boxShadow: 'var(--neu-shadow-inset)' }}
+        >
           <FilePreview files={files} onRemoveFile={handleRemoveFile} />
+          {Object.values(parsingPDFs).length > 0 && (
+            <div className="px-3 pt-2 space-y-2">
+              {Object.entries(parsingPDFs).map(([id, pdf]) => (
+                <div key={id} className="pdf-parsing-card">
+                  <div className="pdf-parsing-icon">
+                    <Icon icon="file" className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="pdf-parsing-title">{pdf.fileName}</div>
+                    <div className="pdf-parsing-message">{pdf.message}</div>
+                    <div className="pdf-parsing-track">
+                      <div className="pdf-parsing-progress" style={{ width: `${Math.max(4, pdf.percentage)}%` }} />
+                    </div>
+                  </div>
+                  <span className="pdf-parsing-percent">{pdf.percentage}%</span>
+                </div>
+              ))}
+            </div>
+          )}
           {pdfDocuments.length > 0 && (
             <div className="px-3 pt-2">
               {pdfDocuments.map(pdf => (
@@ -227,9 +260,9 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(({ onSendMessa
           )}
            <ActiveToolIndicator t={t} />
            <div className="flex items-center p-1.5">
-            <button ref={toolsButtonRef} type="button" onClick={() => setIsToolsOpen(p => !p)} className={`p-2.5 rounded-full flex-shrink-0 transition-colors mr-2 ${isToolsOpen ? 'bg-[var(--accent-color)] text-[var(--accent-color-text)]' : 'text-[var(--text-color-secondary)] hover:bg-black/10 dark:hover:bg-white/10'}`} aria-label="Tools"><Icon icon="plus" className="w-5 h-5" /></button>
-            <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder={t('typeMessage')} rows={1} maxLength={15000} className="flex-grow bg-transparent focus:outline-none resize-none max-h-48 text-[var(--text-color)] px-2 py-2.5" />
-            <button type={isLoading ? 'button' : 'submit'} onClick={isLoading ? onCancel : undefined} disabled={!isLoading && (!input.trim() && files.length === 0)} className={`w-9 h-9 flex-shrink-0 flex items-center justify-center text-[var(--text-color)] rounded-[var(--radius-2xl)] disabled:opacity-50 disabled:cursor-not-allowed transition-all ${isLoading ? 'bg-red-400 hover:bg-red-500' : 'bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500'}`} aria-label={isLoading ? 'Stop generation' : 'Send message'}>
+            <button ref={toolsButtonRef} type="button" onClick={() => setIsToolsOpen(p => !p)} className={`p-2.5 rounded-full flex-shrink-0 transition-colors mr-2 ${isToolsOpen ? 'text-[var(--md-sys-color-primary)]' : 'text-[var(--text-color-secondary)]'}`} aria-label="Tools"><Icon icon="plus" className="w-5 h-5" /></button>
+            <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder={t('typeMessage')} rows={1} maxLength={15000} className="chat-input-textarea flex-grow bg-transparent focus:outline-none resize-none max-h-48 text-[var(--text-color)] px-2 py-2.5" />
+            <button type={isLoading ? 'button' : 'submit'} onClick={isLoading ? onCancel : undefined} disabled={!isLoading && (!input.trim() && files.length === 0 && pdfDocuments.length === 0)} className={`w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-[var(--radius-2xl)] disabled:opacity-50 disabled:cursor-not-allowed transition-all ${isLoading ? 'text-[var(--md-sys-color-error)]' : 'text-[var(--md-sys-color-primary)]'}`} aria-label={isLoading ? 'Stop generation' : 'Send message'}>
                 {isLoading ? <Icon icon="stop" className="w-4 h-4" /> : <Icon icon="send" className="w-4 h-4" />}
             </button>
           </div>
