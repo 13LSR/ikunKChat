@@ -21,6 +21,8 @@ class CharVideo {
     this.frameId = null;
     this.objectUrl = null;
     this.hasFrameWarning = false;
+    this.hasRenderedFrame = false;
+    this.onFirstFrame = config.onFirstFrame;
 
     this.charVideo = config.canvasElement;
     this.charVideo.width = this.canvasWidth;
@@ -106,6 +108,10 @@ class CharVideo {
         this.ctx.drawImage(this.video, 0, 0, this.width, this.height);
         this.reDraw(this.loadData());
         this.drawText();
+        if (!this.hasRenderedFrame) {
+          this.hasRenderedFrame = true;
+          this.onFirstFrame?.();
+        }
       } catch (error) {
         if (!this.hasFrameWarning) {
           console.warn('[CharVideo] Failed to draw video frame:', error);
