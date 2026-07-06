@@ -21,9 +21,10 @@ export const usePWAUpdate = (): UsePWAUpdateReturn => {
   const [offlineReady, setOfflineReady] = useState(false);
   const [needRefresh, setNeedRefresh] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle');
-  const [updateSW, setUpdateSW] = useState<(() => Promise<void>) | null>(null);
+  const [updateSW, setUpdateSW] = useState<((reloadPage?: boolean) => Promise<void>) | null>(null);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const registrationRef = useRef<ServiceWorkerRegistration | null>(null);
+  const isReloadingRef = useRef(false);
   const updateIntervalMs = 10 * 60 * 1000;
 
   useEffect(() => {
@@ -46,6 +47,11 @@ export const usePWAUpdate = (): UsePWAUpdateReturn => {
 
     const handleFocus = () => triggerUpdate();
     const handleOnline = () => triggerUpdate();
+    const handleControllerChange = () => {
+      if (isReloadingRef.current) return;
+      isReloadingRef.current = true;
+      window.location.reload();
+    };
 
     const registerServiceWorker = async () => {
       if (typeof window !== 'undefined' && 'serviceWorker' in navigator && !window.__SW_DISABLED__) {
@@ -53,16 +59,21 @@ export const usePWAUpdate = (): UsePWAUpdateReturn => {
           // @ts-ignore
           const { registerSW } = await import('virtual:pwa-register');
 
-          const updateSWFunc = registerSW({
+          let updateSWFunc: ((reloadPage?: boolean) => Promise<void>) | null = null;
+          updateSWFunc = registerSW({
             immediate: true,
             onOfflineReady() {
               console.log('[SW] Offline ready');
               setOfflineReady(true);
             },
             onNeedRefresh() {
-              console.log('[SW] New version available, refresh needed');
+              console.log('[SW] New version available, applying update');
               setNeedRefresh(true);
-              setUpdateStatus('available');
+              setUpdateStatus('downloading');
+              updateSWFunc?.(true).catch(error => {
+                console.error('[SW] Failed to apply update automatically:', error);
+                setUpdateStatus('available');
+              });
             },
             onRegisteredSW(swScriptUrl, reg) {
               console.log('[SW] Service Worker registered');
@@ -83,6 +94,7 @@ export const usePWAUpdate = (): UsePWAUpdateReturn => {
               window.addEventListener('focus', handleFocus);
               window.addEventListener('online', handleOnline);
               document.addEventListener('visibilitychange', handleVisibilityChange);
+              navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
             },
             onRegisterError(error) {
               console.error('[SW] Service Worker registration failed:', error);
@@ -106,6 +118,9 @@ export const usePWAUpdate = (): UsePWAUpdateReturn => {
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+      }
     };
   }, []);
 
@@ -184,7 +199,7 @@ export const usePWAUpdate = (): UsePWAUpdateReturn => {
     try {
       if (updateSW) {
         // Use vite-plugin-pwa update function
-        await updateSW();
+        await updateSW(reloadPage);
       } else {
         // Fallback: reload page
         if (reloadPage) {

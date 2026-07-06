@@ -7,6 +7,7 @@ import { UpdateSettings } from '../settings/UpdateSettings';
 import { UpdateNoticeModal } from '../UpdateNoticeModal';
 import { ChatSession, Folder, Settings, Persona, Message } from '../../types';
 import { ModelOption } from '../../services/llm/types';
+import type { UpdateStatus } from '../../hooks/usePWAUpdate';
 
 // Lazy load heavy modals
 const ImageLightbox = lazy(() => import('../ImageLightbox').then(module => ({ default: module.ImageLightbox })));
@@ -73,7 +74,7 @@ interface ModalManagerProps {
   onUpdateNow: () => void;
   isCheckingUpdate: boolean;
   updateAvailable: boolean;
-  updateStatus: string;
+  updateStatus: UpdateStatus;
 
   // Chat Export Selector
   showChatExportSelector: boolean;

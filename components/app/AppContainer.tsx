@@ -34,7 +34,12 @@ export const AppContainer: React.FC = () => {
     showUpdateNotice,
     handleCloseUpdateNotice,
     handleDismissUpdateNotice,
-    getLatestVersion
+    getLatestVersion,
+    needRefresh,
+    updateStatus,
+    handleUpdateNow,
+    handleCheckForUpdates,
+    isCheckingUpdate
   } = useAppInitialization();
 
   // 设置管理Hook
@@ -247,6 +252,13 @@ export const AppContainer: React.FC = () => {
         showUpdateNotice={showUpdateNotice}
         onCloseUpdateNotice={handleCloseUpdateNotice}
         onDismissUpdateNotice={handleDismissUpdateNotice}
+        showUpdateSettings={false}
+        onCloseUpdateSettings={() => {}}
+        onCheckUpdate={handleCheckForUpdates}
+        onUpdateNow={handleUpdateNow}
+        isCheckingUpdate={isCheckingUpdate}
+        updateAvailable={needRefresh}
+        updateStatus={updateStatus}
         editingChat={uiState.editingChat}
         onCloseEditChat={uiState.closeEditChat}
         onSaveChatDetails={chatDataHandlers.handleUpdateChatDetails}

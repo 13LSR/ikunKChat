@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { usePWAUpdate } from './usePWAUpdate';
+import { usePWAUpdate, type UpdateStatus } from './usePWAUpdate';
 import { useUpdateService } from '../services/updateService';
 import { initDB, migrateAttachmentsFromLocalStorage } from '../services/indexedDBService';
 import { loadPrivacyConsent, savePrivacyConsent } from '../services/storageService';
@@ -14,7 +14,7 @@ interface UseAppInitializationReturn {
   
   // PWA更新相关
   needRefresh: boolean;
-  updateStatus: string;
+  updateStatus: UpdateStatus;
   updateServiceWorker: () => void;
   checkForUpdates: () => Promise<any>;
   showUpdateNotice: boolean;

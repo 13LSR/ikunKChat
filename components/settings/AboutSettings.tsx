@@ -6,6 +6,12 @@ interface AboutSettingsProps {
   versionInfo: { version: string } | null;
 }
 
+const siteLinks = [
+  { label: '主域名', url: 'https://hjm.331106.xyz', host: 'hjm.331106.xyz' },
+  { label: '备用域名', url: 'https://yx-hjm.331106.xyz', host: 'yx-hjm.331106.xyz' },
+  { label: '备用域名', url: 'https://eo-hjm.331106.xyz', host: 'eo-hjm.331106.xyz' },
+];
+
 export const AboutSettings: React.FC<AboutSettingsProps> = ({ versionInfo }) => {
   const { t } = useLocalization();
 
@@ -87,10 +93,18 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ versionInfo }) => 
       <div className="border-t border-[var(--glass-border)] pt-6 space-y-4">
         <h3 className="font-bold text-lg text-[var(--text-color)]">{t('usefulLinks')}</h3>
         <div className="flex flex-wrap gap-4">
-          <a href="https://hjm.331106.xyz" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[var(--md-sys-color-primary)] hover:underline">
-            <Icon icon="link" className="w-4 h-4" />
-            <span>hjm.331106.xyz</span>
-          </a>
+          {siteLinks.map((link) => (
+            <a
+              key={link.url}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-[var(--md-sys-color-primary)] hover:underline"
+            >
+              <Icon icon="link" className="w-4 h-4" />
+              <span>{link.label}: {link.host}</span>
+            </a>
+          ))}
         </div>
       </div>
     </div>
