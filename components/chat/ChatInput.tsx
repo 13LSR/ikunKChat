@@ -4,6 +4,7 @@ import { useLocalization } from '../../contexts/LocalizationContext';
 import { useToast } from '../../contexts/ToastContext';
 import { isFileSupported } from '../../utils/fileUtils';
 import { ChatSession } from '../../types';
+import { ModelOption } from '../../services/llm/types';
 import { ToolItem } from './ToolItem';
 import { ActiveToolIndicator } from './ActiveToolIndicator';
 import { FilePreview } from './FilePreview';
@@ -31,8 +32,10 @@ interface ChatInputProps {
   setInput: (value: string) => void;
   chatSession: ChatSession | null;
   availableModels: string[];
+  availableModelOptions?: ModelOption[];
   currentModel: string;
-  onSetModelForActiveChat: (model: string) => void;
+  currentModelRouteId?: string;
+  onSetModelForActiveChat: (model: string, routeId?: string) => void;
 }
 
 export interface FileWithId {

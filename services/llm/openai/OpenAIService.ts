@@ -1,4 +1,4 @@
-import { ILLMService, LLMProvider, ChatRequest, StreamChunk } from '../types';
+import { ILLMService, LLMProvider, ChatRequest, StreamChunk, ModelOption } from '../types';
 import { prepareOpenAIPayload } from './payloadBuilder';
 
 export class OpenAIService implements ILLMService {
@@ -7,11 +7,18 @@ export class OpenAIService implements ILLMService {
   /**
    * 获取 OpenAI 兼容 API 的模型列表
    */
-  async getAvailableModels(apiKey: string, apiBaseUrl?: string): Promise<string[]> {
+  async getAvailableModels(apiKey: string, apiBaseUrl?: string): Promise<ModelOption[]> {
     const envModels = ((import.meta as any).env?.VITE_OPENAI_MODELS || '').split(',').map(m => m.trim()).filter(Boolean);
+    const toOptions = (models: string[]): ModelOption[] => models.map(id => ({
+      id,
+      label: id,
+      routeId: 'openai',
+      channelName: 'OpenAI',
+      provider: 'openai',
+    }));
     const sanitizedApiKey = apiKey.trim().replace(/["']/g, '');
     if (!sanitizedApiKey) {
-      return envModels;
+      return toOptions(envModels);
     }
 
     const baseUrl = (apiBaseUrl?.trim() || 'https://api.openai.com').replace(/\/$/, '');
@@ -27,7 +34,7 @@ export class OpenAIService implements ILLMService {
 
       if (!response.ok) {
         console.error(`Failed to fetch models from OpenAI API, status: ${response.status}`);
-        return envModels;
+        return toOptions(envModels);
       }
 
       const data = await response.json();
@@ -39,11 +46,11 @@ export class OpenAIService implements ILLMService {
         ? envModels.filter(m => apiModels.has(m))
         : Array.from(apiModels) as string[];
 
-      return availableModels;
+      return toOptions(availableModels);
 
     } catch (error) {
       console.error("Error fetching OpenAI models:", error);
-      return envModels;
+      return toOptions(envModels);
     }
   }
 

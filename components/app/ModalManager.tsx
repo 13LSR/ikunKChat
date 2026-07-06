@@ -6,6 +6,7 @@ import { MessageEditModal } from '../MessageEditModal';
 import { UpdateSettings } from '../settings/UpdateSettings';
 import { UpdateNoticeModal } from '../UpdateNoticeModal';
 import { ChatSession, Folder, Settings, Persona, Message } from '../../types';
+import { ModelOption } from '../../services/llm/types';
 
 // Lazy load heavy modals
 const ImageLightbox = lazy(() => import('../ImageLightbox').then(module => ({ default: module.ImageLightbox })));
@@ -27,6 +28,7 @@ interface ModalManagerProps {
   onClearAll: () => void;
   onClearChatHistory: () => void;
   availableModels: string[];
+  availableModelOptions?: ModelOption[];
   personas: Persona[];
   versionInfo: any;
 
@@ -100,6 +102,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
   onClearAll,
   onClearChatHistory,
   availableModels,
+  availableModelOptions,
   personas,
   versionInfo,
   showUpdateNotice,

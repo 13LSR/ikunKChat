@@ -11,6 +11,7 @@ import { useAppData } from '../../hooks/useAppData';
 import { useAppUIManager } from '../../hooks/useAppUIManager';
 import { useAppOperations } from '../../hooks/useAppOperations';
 import { exportData, exportSelectedChats } from '../../services/storageService';
+import CharityAdWidget from '../common/CharityAdWidget';
 
 const PrivacyNoticeModal = lazy(() =>
   import('../PrivacyNoticeModal').then((module) => ({ default: module.PrivacyNoticeModal }))
@@ -41,6 +42,7 @@ export const AppContainer: React.FC = () => {
     settings,
     setSettings,
     availableModels,
+    availableModelOptions,
     isStorageLoaded,
     handleSettingsChange,
     validateAndUpdateDefaultPersona
@@ -72,7 +74,7 @@ export const AppContainer: React.FC = () => {
     handleEditAndResubmit,
     handleNewChat,
     handleSelectChat
-  } = useAppData(settings, isStorageLoaded, handleSettingsChange, addToast);
+  } = useAppData(settings, isStorageLoaded, handleSettingsChange, addToast, availableModels, availableModelOptions);
 
   // UI管理Hook
   const {
@@ -137,6 +139,21 @@ export const AppContainer: React.FC = () => {
     }
   };
 
+  const shouldHideCharityAd = Boolean(
+    currentView !== 'chat' ||
+    isMobileSidebarOpen ||
+    uiState.isSettingsOpen ||
+    uiState.lightboxImage ||
+    uiState.editingChat ||
+    uiState.editingFolder ||
+    uiState.citationChunks ||
+    uiState.editingMessage ||
+    confirmation ||
+    showUpdateNotice ||
+    showChatExportSelector ||
+    showChatClearSelector
+  );
+
   // 认证检查
   if (hasPassword && !isAuthenticated) {
     return <PasswordView onVerified={handleVerified} />;
@@ -177,6 +194,7 @@ export const AppContainer: React.FC = () => {
         personas={personas}
         settings={settings}
         availableModels={availableModels}
+        availableModelOptions={availableModelOptions}
         chats={chats}
         isLoading={isLoading}
         onCancelGeneration={handleCancel}
@@ -186,7 +204,7 @@ export const AppContainer: React.FC = () => {
         onRegenerate={handleRegenerate}
         onEditAndResubmit={handleEditAndResubmit}
         onEditMessage={uiState.setEditingMessage}
-        onSetCurrentModel={(model) => handleSettingsChange({ lastSelectedModel: model })}
+        onSetCurrentModel={(model, routeId) => handleSettingsChange({ lastSelectedModel: model, lastSelectedModelRouteId: routeId })}
         onSetModelForActiveChat={chatDataHandlers.handleSetModelForActiveChat}
         isSidebarCollapsed={sidebarState.isCollapsed}
         onToggleSidebar={handleToggleSidebar}
@@ -223,6 +241,7 @@ export const AppContainer: React.FC = () => {
         onClearAll={handleClearAll}
         onClearChatHistory={handleClearChatHistory}
         availableModels={availableModels}
+        availableModelOptions={availableModelOptions}
         personas={personas}
         versionInfo={getLatestVersion()}
         showUpdateNotice={showUpdateNotice}
@@ -255,6 +274,7 @@ export const AppContainer: React.FC = () => {
           handleClearSelectedChats(selectedChatIds, chats, activeChatId, setActiveChatId, setChats)
         }
       />
+      <CharityAdWidget hidden={shouldHideCharityAd} />
     </AppLayout>
   );
 };

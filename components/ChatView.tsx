@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChatSession, Message, Settings, Persona } from '../types';
+import { ModelOption } from '../services/llm/types';
 import { Icon } from './Icon';
 import { WelcomeView } from './WelcomeView';
 import { MessageBubble } from './MessageBubble';
@@ -25,9 +26,11 @@ interface MessageActions {
 // 模型配置
 interface ModelConfig {
   currentModel: string;
+  currentModelRouteId?: string;
   availableModels: string[];
-  onSetCurrentModel: (model: string) => void;
-  onSetModelForActiveChat: (model: string) => void;
+  availableModelOptions: ModelOption[];
+  onSetCurrentModel: (model: string, routeId?: string) => void;
+  onSetModelForActiveChat: (model: string, routeId?: string) => void;
 }
 
 // UI 交互配置
@@ -362,8 +365,10 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
           chatSession={chatSession}
           onNewChat={chatManagement.onNewChat}
           availableModels={props.modelConfig.availableModels}
+          availableModelOptions={props.modelConfig.availableModelOptions}
           onSetModelForActiveChat={props.modelConfig.onSetModelForActiveChat}
           currentModel={props.modelConfig.currentModel}
+          currentModelRouteId={props.modelConfig.currentModelRouteId}
           isSidebarCollapsed={props.uiInteractions.isSidebarCollapsed}
           onToggleSidebar={props.uiInteractions.onToggleSidebar}
           onToggleMobileSidebar={props.uiInteractions.onToggleMobileSidebar}
@@ -406,8 +411,10 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
             <InternalView active={!chatSession}>
               <WelcomeView
                 currentModel={props.modelConfig.currentModel}
+                currentModelRouteId={props.modelConfig.currentModelRouteId}
                 onSetCurrentModel={props.modelConfig.onSetCurrentModel}
                 availableModels={props.modelConfig.availableModels}
+                availableModelOptions={props.modelConfig.availableModelOptions}
                 personas={props.personas}
                 onStartChat={props.chatManagement.onNewChat}
                 settings={props.settings}
@@ -426,7 +433,9 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
             setInput={setChatInput}
             chatSession={chatSession}
             availableModels={props.modelConfig.availableModels}
+            availableModelOptions={props.modelConfig.availableModelOptions}
             currentModel={props.modelConfig.currentModel}
+            currentModelRouteId={props.modelConfig.currentModelRouteId}
             onSetModelForActiveChat={props.modelConfig.onSetModelForActiveChat}
           />
         </div>

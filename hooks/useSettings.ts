@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Settings } from '../types';
 import { useLocalization } from '../contexts/LocalizationContext';
 import { createLLMService } from '../services/llm/llmFactory';
+import { ModelOption } from '../services/llm/types';
 import { loadSettings, saveSettings } from '../services/storageService';
 import { USE_EMERGENCY_ROUTE } from '../emergency.config';
 
@@ -105,7 +106,7 @@ const getEnvApiConfig = () => {
 
 export const useSettings = () => {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [availableModelOptions, setAvailableModelOptions] = useState<ModelOption[]>([]);
   const [isStorageLoaded, setIsStorageLoaded] = useState(false);
   const [authVersion, setAuthVersion] = useState(0);
   const { setLanguage } = useLocalization();
@@ -183,17 +184,38 @@ export const useSettings = () => {
       ? settings.customModels.split(/[\n,]+/).map(m => m.trim()).filter(Boolean)
       : [];
 
+    const customModelOptions: ModelOption[] = customModelsList.map(id => ({
+      id,
+      label: id,
+      routeId: settings.llmProvider || 'custom',
+      channelName: settings.llmProvider === 'proxy' ? 'Custom Models' : settings.llmProvider || 'custom',
+      provider: settings.llmProvider,
+    }));
+
+    const mergeModelOptions = (options: ModelOption[]) => {
+      const seen = new Set<string>();
+      return options.filter(option => {
+        const key = `${option.routeId || ''}::${option.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+
     // 先展示用户手填的模型，避免接口拉取卡住时选择器一直为空。
     if (customModelsList.length > 0) {
-      setAvailableModels(currentModels => {
-        const mergedModels = [...new Set([...currentModels, ...customModelsList])];
-        return mergedModels.length === currentModels.length &&
-          mergedModels.every((model, index) => model === currentModels[index])
-          ? currentModels
-          : mergedModels;
+      setAvailableModelOptions(currentOptions => {
+        const mergedOptions = mergeModelOptions([...currentOptions, ...customModelOptions]);
+        return mergedOptions.length === currentOptions.length &&
+          mergedOptions.every((model, index) =>
+            model.id === currentOptions[index]?.id &&
+            model.routeId === currentOptions[index]?.routeId
+          )
+          ? currentOptions
+          : mergedOptions;
       });
     } else {
-      setAvailableModels(currentModels => {
+      setAvailableModelOptions(currentModels => {
         if (currentModels.length === 0) return currentModels;
         return [];
       });
@@ -216,17 +238,23 @@ export const useSettings = () => {
       actualApiBaseUrl = envConfig.apiBaseUrl;
     }
 
-    const applyModels = (fetchedModels: string[]) => {
-      const allModels = [...new Set([...fetchedModels, ...customModelsList])];
+    const applyModels = (fetchedModels: ModelOption[]) => {
+      const allModelOptions = mergeModelOptions([...fetchedModels, ...customModelOptions]);
+      const allModels = [...new Set(allModelOptions.map(option => option.id))];
 
       if (allModels.length === 0) return;
 
-      setAvailableModels(allModels);
+      setAvailableModelOptions(allModelOptions);
       setSettings(current => {
         const newDefaults: Partial<Settings> = {};
         // 如果 lastSelectedModel 不在模型列表中，清空它（会自动使用第一个模型）
-        if (current.lastSelectedModel && !allModels.includes(current.lastSelectedModel)) {
+        const selectedModelExists = allModelOptions.some(option =>
+          option.id === current.lastSelectedModel &&
+          (!current.lastSelectedModelRouteId || option.routeId === current.lastSelectedModelRouteId)
+        );
+        if (current.lastSelectedModel && !selectedModelExists) {
           newDefaults.lastSelectedModel = undefined;
+          newDefaults.lastSelectedModelRouteId = undefined;
         }
         // 标题生成模型逻辑：优先使用环境变量，否则取列表最后一位
         const envTitleModel = process.env.TITLE_MODEL_NAME?.trim();
@@ -258,7 +286,9 @@ export const useSettings = () => {
     return () => window.removeEventListener('kchat-auth-changed', handleAuthChanged);
   }, []);
 
-  return { settings, setSettings, availableModels, isStorageLoaded };
+  const availableModels = availableModelOptions.map(option => option.id);
+
+  return { settings, setSettings, availableModels, availableModelOptions, isStorageLoaded };
 };
 
 // 导出环境变量配置状态，供设置界面使用

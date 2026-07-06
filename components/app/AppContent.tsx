@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from 'react';
 import { ChatView } from '../ChatView';
 import { ViewContainer } from '../common/ViewContainer';
 import { ChatSession, Settings, Persona, Message } from '../../types';
+import { ModelOption } from '../../services/llm/types';
 
 // Lazy load views
 const RolesView = lazy(() => import('../RolesView').then(module => ({ default: module.RolesView })));
@@ -16,6 +17,7 @@ interface AppContentProps {
   personas: Persona[];
   settings: Settings;
   availableModels: string[];
+  availableModelOptions: ModelOption[];
   chats: ChatSession[];
   
   // Chat view props
@@ -27,8 +29,8 @@ interface AppContentProps {
   onRegenerate: (messageId: string) => void;
   onEditAndResubmit: (messageId: string, content: string) => void;
   onEditMessage: (message: Message) => void;
-  onSetCurrentModel: (model: string) => void;
-  onSetModelForActiveChat: (model: string) => void;
+  onSetCurrentModel: (model: string, routeId?: string) => void;
+  onSetModelForActiveChat: (model: string, routeId?: string) => void;
   
   // UI interactions
   isSidebarCollapsed: boolean;
@@ -71,6 +73,7 @@ export const AppContent: React.FC<AppContentProps> = ({
   personas,
   settings,
   availableModels,
+  availableModelOptions,
   chats,
   isLoading,
   onCancelGeneration,
@@ -123,7 +126,9 @@ export const AppContent: React.FC<AppContentProps> = ({
           }}
           modelConfig={{
             currentModel: settings.lastSelectedModel ?? availableModels[0] ?? '',
+            currentModelRouteId: settings.lastSelectedModelRouteId,
             availableModels,
+            availableModelOptions,
             onSetCurrentModel,
             onSetModelForActiveChat,
           }}
@@ -179,6 +184,7 @@ export const AppContent: React.FC<AppContentProps> = ({
           onSave={onSavePersona}
           onClose={onCloseEditor}
           availableModels={availableModels}
+          availableModelOptions={availableModelOptions}
         />
       </ViewContainer>
     </Suspense>

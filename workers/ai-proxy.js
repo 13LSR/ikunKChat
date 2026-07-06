@@ -54,10 +54,11 @@ async function handleAuthVerify(request, env) {
 
 async function handleChatCompletions(request, env) {
   const body = await request.json();
-  const route = findRouteByModel(env, body.model);
+  const route = findRouteByModel(env, body.model, body.kchat?.routeId);
 
   if (!route) {
-    return json({ error: { message: `No upstream route configured for model: ${body.model}` } }, request, 400);
+    const routeHint = body.kchat?.routeId ? ` on route ${body.kchat.routeId}` : '';
+    return json({ error: { message: `No upstream route configured for model: ${body.model}${routeHint}` } }, request, 400);
   }
 
   if (route.provider === 'gemini') {
@@ -73,6 +74,7 @@ function listModels(env) {
       id,
       object: 'model',
       owned_by: route.id || route.provider || 'worker-proxy',
+      channel_name: route.name || route.id || route.provider || 'worker-proxy',
     }))
   );
 }
@@ -85,24 +87,32 @@ function getRoutes(env) {
 
   return routes.map((route) => ({
     ...route,
-    provider: route.provider || 'openai',
-    baseUrl: String(route.baseUrl || '').replace(/\/$/, ''),
+    provider: String(route.provider || 'openai').toLowerCase(),
+    name: typeof route.name === 'string' ? route.name : '',
+    baseUrl: String(route.baseUrl || '').replace(/\/+$/, ''),
     models: Array.isArray(route.models) ? route.models : [],
+    modelMap: route.modelMap && typeof route.modelMap === 'object' ? route.modelMap : {},
   }));
 }
 
-function findRouteByModel(env, model) {
-  return getRoutes(env).find((route) => route.models.includes(model));
+function findRouteByModel(env, model, routeId) {
+  const routes = getRoutes(env);
+  if (routeId) {
+    const exactRoute = routes.find((route) => route.id === routeId && route.models.includes(model));
+    if (exactRoute) return exactRoute;
+  }
+  return routes.find((route) => route.models.includes(model));
 }
 
 async function proxyOpenAIChat(body, route, request) {
-  const upstream = await fetch(`${route.baseUrl}/v1/chat/completions`, {
+  const upstream = await fetch(getOpenAICompatibleChatEndpoint(route), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Accept': 'text/event-stream, application/json',
       Authorization: `Bearer ${route.apiKey}`,
     },
-    body: JSON.stringify(stripKChatFields(body)),
+    body: JSON.stringify(prepareOpenAICompatibleBody(body, route)),
   });
 
   return withCors(new Response(upstream.body, {
@@ -113,6 +123,53 @@ async function proxyOpenAIChat(body, route, request) {
       'Cache-Control': 'no-store',
     },
   }), request);
+}
+
+function getOpenAICompatibleChatEndpoint(route) {
+  const baseUrl = route.baseUrl || 'https://api.openai.com';
+  if (/\/chat\/completions$/i.test(baseUrl)) return baseUrl;
+  if (/\/v1$/i.test(baseUrl)) return `${baseUrl}/chat/completions`;
+  return `${baseUrl}/v1/chat/completions`;
+}
+
+function prepareOpenAICompatibleBody(body, route) {
+  const payload = {
+    ...stripKChatFields(body),
+    model: getUpstreamModelName(body.model, route),
+  };
+
+  if (route.provider === 'nvidia') {
+    return compactObject(payload);
+  }
+
+  return payload;
+}
+
+function getUpstreamModelName(model, route) {
+  if (typeof model !== 'string') return model;
+  if (typeof route.modelMap?.[model] === 'string') return route.modelMap[model];
+
+  if (route.provider === 'nvidia' && /^gpt-oss-/i.test(model)) {
+    return `openai/${model}`;
+  }
+
+  return model;
+}
+
+function compactObject(value) {
+  if (Array.isArray(value)) {
+    return value.map(compactObject);
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined && item !== null)
+      .map(([key, item]) => [key, compactObject(item)])
+  );
 }
 
 async function proxyGeminiChat(body, route, request) {

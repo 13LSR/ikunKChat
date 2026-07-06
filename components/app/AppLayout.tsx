@@ -2,6 +2,7 @@ import React from 'react';
 import { Sidebar } from '../sidebar/Sidebar';
 import { ToastContainer } from '../ToastContainer';
 import { ChatSession, Folder } from '../../types';
+import PageMeterBar from '../../PageMeterBar';
 
 interface AppLayoutProps {
   // Sidebar props
@@ -75,7 +76,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           onOpenArchive={onOpenArchive}
           onToggleMobileSidebar={onToggleMobileSidebar}
           onSidebarStateChange={onSidebarStateChange}
-        />
+        >
+          <PageMeterBar />
+        </Sidebar>
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col h-full overflow-hidden">

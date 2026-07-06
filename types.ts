@@ -51,6 +51,7 @@ export interface Persona {
   bio: string;
   systemPrompt: string;
   model?: string;
+  modelRouteId?: string;
   temperature?: number;
   contextLength?: number;
   maxOutputTokens?: number;
@@ -62,6 +63,7 @@ export interface ChatSession {
   title: string;
   icon?: string;
   model: string;
+  modelRouteId?: string;
   messages: Message[];
   createdAt: number;
   folderId: string | null;
@@ -80,6 +82,7 @@ export interface Settings {
   llmProvider?: LLMProvider; // 用户选择的LLM服务商
   apiKey: string[] | null;
   lastSelectedModel?: string; // 用户最后选择的模型（模型选择器记忆功能）
+  lastSelectedModelRouteId?: string;
   defaultPersona: string;
   autoTitleGeneration: boolean;
   titleGenerationModel: string;

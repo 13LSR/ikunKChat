@@ -5,6 +5,7 @@ import { useChatMessaging } from './useChatMessaging';
 import { useToast } from '../contexts/ToastContext';
 import { useLocalization } from '../contexts/LocalizationContext';
 import { Settings, ChatSession, Persona } from '../types';
+import { ModelOption } from '../services/llm/types';
 
 interface UseAppDataReturn {
   // 聊天数据相关
@@ -22,7 +23,7 @@ interface UseAppDataReturn {
     handleArchiveChat: (id: string, archived: boolean) => void;
     handleDeleteFolder: (id: string) => void;
     handleMoveChatToFolder: (chatId: string, folderId: string | null) => void;
-    handleSetModelForActiveChat: (model: string) => void;
+    handleSetModelForActiveChat: (model: string, routeId?: string) => void;
     handleUpdateChatDetails: (id: string, title: string, folderId: string | null) => void;
     handleNewFolder: (name: string) => void;
     handleUpdateFolder: (id: string, name: string) => void;
@@ -59,7 +60,9 @@ export const useAppData = (
   settings: Settings,
   isStorageLoaded: boolean,
   onSettingsChange: (settings: Partial<Settings>) => void,
-  addToast?: (message: string, type: 'success' | 'error' | 'info') => void
+  addToast?: (message: string, type: 'success' | 'error' | 'info') => void,
+  availableModels: string[] = [],
+  availableModelOptions: ModelOption[] = []
 ): UseAppDataReturn => {
   const { addToast: addToastFromContext } = useToast();
   const { t } = useLocalization();
@@ -95,7 +98,11 @@ export const useAppData = (
 
   // 聊天消息管理
   const activeChat = chats.find((c) => c.id === activeChatId) || null;
-  const availableModels = settings.availableModels || [];
+  const resolveModelRouteId = (model?: string, routeId?: string) => {
+    if (!model) return routeId;
+    if (routeId) return routeId;
+    return availableModelOptions.find(option => option.id === model)?.routeId;
+  };
 
   const {
     isLoading,
@@ -129,6 +136,7 @@ export const useAppData = (
       if (persona) {
         // 优先级：角色默认模型 > 用户最后选择的模型 > 模型列表第一个
         const modelToUse = persona.model ?? settings.lastSelectedModel ?? availableModels[0] ?? '';
+        const modelRouteId = resolveModelRouteId(modelToUse, persona.modelRouteId ?? settings.lastSelectedModelRouteId);
 
         const newChatSession: ChatSession = {
           id: crypto.randomUUID(),
@@ -136,6 +144,7 @@ export const useAppData = (
           messages: [],
           createdAt: Date.now(),
           model: modelToUse,
+          modelRouteId,
           folderId: null,
           personaId: persona.id,
         };
@@ -154,6 +163,7 @@ export const useAppData = (
       settings.defaultPersona,
       settings.lastSelectedModel,
       availableModels,
+      availableModelOptions,
       personas,
       setChats,
       setActiveChatId,

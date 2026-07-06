@@ -1,4 +1,4 @@
-import { ILLMService, LLMProvider, ChatRequest, StreamChunk } from '../types';
+import { ILLMService, LLMProvider, ChatRequest, StreamChunk, ModelOption } from '../types';
 import { prepareOpenAIPayload } from '../openai/payloadBuilder';
 import { authService } from '../../authService';
 
@@ -8,7 +8,7 @@ const getProxyBaseUrl = (apiBaseUrl?: string) =>
 export class ProxyLLMService implements ILLMService {
   readonly provider: LLMProvider = 'proxy';
 
-  async getAvailableModels(_apiKey: string, apiBaseUrl?: string): Promise<string[]> {
+  async getAvailableModels(_apiKey: string, apiBaseUrl?: string): Promise<ModelOption[]> {
     const baseUrl = getProxyBaseUrl(apiBaseUrl);
     if (!baseUrl) return [];
 
@@ -27,8 +27,23 @@ export class ProxyLLMService implements ILLMService {
       if (!Array.isArray(data?.data)) return [];
 
       return data.data
-        .map((model: any) => model?.id)
-        .filter((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0);
+        .map((model: any): ModelOption | null => {
+          if (typeof model?.id !== 'string' || model.id.trim().length === 0) return null;
+          const routeId = typeof model.owned_by === 'string' ? model.owned_by : undefined;
+          const channelName = typeof model.channel_name === 'string'
+            ? model.channel_name
+            : typeof model.channelName === 'string'
+              ? model.channelName
+              : routeId;
+          return {
+            id: model.id,
+            label: model.id,
+            routeId,
+            channelName,
+            provider: 'proxy',
+          };
+        })
+        .filter((model: ModelOption | null): model is ModelOption => model !== null);
     } catch (error) {
       console.error('Error fetching Worker proxy models:', error);
       return [];
@@ -52,6 +67,7 @@ export class ProxyLLMService implements ILLMService {
       max_tokens: Math.min(config.maxOutputTokens, 65536),
       stream: true,
       kchat: {
+        routeId: request.modelRouteId,
         showThoughts,
         enableSearch: request.enableSearch,
       },

@@ -5,6 +5,14 @@ import { Message, Persona, Settings } from '../../types';
  */
 export type LLMProvider = 'gemini' | 'openai' | 'proxy';
 
+export interface ModelOption {
+  id: string;
+  label: string;
+  routeId?: string;
+  channelName?: string;
+  provider?: LLMProvider;
+}
+
 /**
  * 定义单个模型的配置参数
  */
@@ -20,6 +28,7 @@ export interface ModelConfig {
 export interface ChatRequest {
   messages: Message[];
   model: string;
+  modelRouteId?: string;
   persona: Persona;
   config: ModelConfig;
   apiKey: string;
@@ -56,7 +65,7 @@ export interface ILLMService {
    * @param apiBaseUrl - （可选）API的基础URL
    * @returns 返回一个包含模型名称字符串的数组
    */
-  getAvailableModels(apiKey: string, apiBaseUrl?: string): Promise<string[]>;
+  getAvailableModels(apiKey: string, apiBaseUrl?: string): Promise<ModelOption[]>;
 
   /**
    * 发送聊天请求并以流式方式获取响应

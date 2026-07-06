@@ -15,7 +15,7 @@ Do not set `VITE_ACCESS_PASSWORD`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `VITE_API
 
 ## Worker Secrets
 
-Configure the Worker with route data. Each route owns its base URL, API key, and model list. The frontend sees only the model names.
+Configure the Worker with route data. Each route owns its base URL, API key, and model list. The frontend receives only model metadata and channel names, never API keys. Use `id` as the stable route identifier and optional `name` as the user-facing channel label.
 
 For OpenAI-compatible APIs, `baseUrl` should be the API origin without `/v1`. If a provider documents `https://api.example.com/v1/chat/completions`, configure `baseUrl` as `https://api.example.com`.
 
@@ -23,6 +23,7 @@ For OpenAI-compatible APIs, `baseUrl` should be the API origin without `/v1`. If
 [
   {
     "id": "api-one",
+    "name": "Fast Route",
     "provider": "openai",
     "baseUrl": "https://api-one.example.com",
     "apiKey": "sk-...",
@@ -30,6 +31,7 @@ For OpenAI-compatible APIs, `baseUrl` should be the API origin without `/v1`. If
   },
   {
     "id": "api-two",
+    "name": "Backup Route",
     "provider": "openai",
     "baseUrl": "https://api-two.example.com",
     "apiKey": "sk-...",
@@ -45,10 +47,29 @@ Example Gemini route:
 ```json
 {
   "id": "gemini",
+  "name": "Gemini",
   "provider": "gemini",
   "baseUrl": "https://generativelanguage.googleapis.com",
   "apiKey": "your-gemini-key",
   "models": ["gemini-2.5-flash", "gemini-2.5-pro"]
+}
+```
+
+Use `provider: "nvidia"` for NVIDIA NIM routes. NVIDIA is handled as an OpenAI-compatible upstream. You can set `baseUrl` to either `https://integrate.api.nvidia.com` or `https://integrate.api.nvidia.com/v1`; the Worker will normalize the chat completions endpoint.
+
+Example NVIDIA route:
+
+```json
+{
+  "id": "nvidia",
+  "name": "NVIDIA",
+  "provider": "nvidia",
+  "baseUrl": "https://integrate.api.nvidia.com",
+  "apiKey": "nvapi-...",
+  "models": ["gpt-oss-120b"],
+  "modelMap": {
+    "gpt-oss-120b": "openai/gpt-oss-120b"
+  }
 }
 ```
 
@@ -73,8 +94,10 @@ Before deploying Pages, verify locally:
 ```bash
 npm install
 npm run build
-npm run dev
+npm run dev:local
 ```
+
+`npm run dev:local` starts both the local Worker on `http://127.0.0.1:8787` and the Vite app, and points the frontend at that local Worker for the current process.
 
 For Worker-only testing:
 
@@ -84,7 +107,7 @@ cp .dev.vars.example .dev.vars
 npx wrangler dev --config wrangler.ai-proxy.example.toml
 ```
 
-Then set `VITE_WORKER_API_BASE_URL` to the local Wrangler URL and run the app.
+Then set `VITE_WORKER_API_BASE_URL` to the local Wrangler URL and run the app with `npm run dev`.
 
 You can verify the Worker model list before starting the frontend:
 

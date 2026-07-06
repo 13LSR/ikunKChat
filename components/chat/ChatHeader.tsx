@@ -1,31 +1,57 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ChatSession } from '../../types';
 import { Icon } from '../Icon';
 import { ModelSelector } from '../ModelSelector';
 import { useLocalization } from '../../contexts/LocalizationContext';
+import { ModelOption } from '../../services/llm/types';
 
 interface ChatHeaderProps {
     chatSession: ChatSession | null;
     onNewChat: () => void;
     availableModels: string[];
-    onSetModelForActiveChat: (model: string) => void;
+    availableModelOptions: ModelOption[];
+    onSetModelForActiveChat: (model: string, routeId?: string) => void;
     currentModel: string;
+    currentModelRouteId?: string;
     isSidebarCollapsed: boolean;
     onToggleSidebar: () => void;
     onToggleMobileSidebar: () => void;
 }
 
-export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, availableModels, onSetModelForActiveChat, currentModel, isSidebarCollapsed, onToggleSidebar, onToggleMobileSidebar }) => {
+export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, availableModels, availableModelOptions, onSetModelForActiveChat, currentModel, currentModelRouteId, isSidebarCollapsed, onToggleSidebar, onToggleMobileSidebar }) => {
     const { t } = useLocalization();
     const [isMobileModelSelectorOpen, setIsMobileModelSelectorOpen] = useState(false);
     const mobileModelSelectorRef = useRef<HTMLDivElement>(null);
+    const normalizedModelOptions = useMemo<ModelOption[]>(
+        () => availableModelOptions.length > 0
+            ? availableModelOptions
+            : availableModels.map(id => ({ id, label: id, routeId: 'default', channelName: 'Default' })),
+        [availableModelOptions, availableModels]
+    );
+    const mobileModelGroups = useMemo(() => {
+        const groups = new Map<string, { id: string; name: string; models: ModelOption[] }>();
+        normalizedModelOptions.forEach(model => {
+            const id = model.routeId || model.channelName || 'default';
+            const name = model.channelName || model.routeId || 'Default';
+            const group = groups.get(id);
+            if (group) {
+                group.models.push(model);
+            } else {
+                groups.set(id, { id, name, models: [model] });
+            }
+        });
+        return Array.from(groups.values());
+    }, [normalizedModelOptions]);
 
     const toggleMobileModelSelector = () => {
         setIsMobileModelSelectorOpen(prev => !prev);
     };
 
-    const handleMobileModelSelect = (model: string) => {
-        onSetModelForActiveChat(model);
+    const selectedModel = chatSession?.model || currentModel;
+    const selectedRouteId = chatSession?.modelRouteId || currentModelRouteId;
+
+    const handleMobileModelSelect = (model: ModelOption) => {
+        onSetModelForActiveChat(model.id, model.routeId);
         setIsMobileModelSelectorOpen(false);
     };
 
@@ -101,7 +127,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, 
                     <Icon icon="plus" className="w-5 h-5" />
                 </button>
                 <div className="w-64">
-                    <ModelSelector models={availableModels} selectedModel={chatSession?.model || currentModel} onModelChange={onSetModelForActiveChat} isHeader={true} />
+                    <ModelSelector
+                        models={availableModels}
+                        modelOptions={availableModelOptions}
+                        selectedModel={selectedModel}
+                        selectedRouteId={selectedRouteId}
+                        onModelChange={onSetModelForActiveChat}
+                        isHeader={true}
+                    />
                 </div>
             </div>
             
@@ -122,14 +155,21 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, 
                     {isMobileModelSelectorOpen && (
                         <div className="absolute top-16 right-0 z-10 w-48 max-h-60 overflow-y-auto">
                             <div className="glass-pane rounded-[var(--radius-2xl)] p-2">
-                                {availableModels.map(model => (
-                                    <div
-                                        key={model}
-                                        onClick={() => handleMobileModelSelect(model)}
-                                        className={`custom-select-option p-2 rounded-[var(--radius-2xl)] cursor-pointer flex items-center gap-2 ${currentModel === model ? 'active' : ''}`}
-                                    >
-                                        <Icon icon="chip" className="w-4 h-4" />
-                                        <span className="text-sm">{model}</span>
+                                {mobileModelGroups.map(group => (
+                                    <div key={group.id} className="mb-1 last:mb-0">
+                                        <div className="px-2 py-1 text-xs font-semibold text-[var(--text-color-secondary)] truncate">{group.name}</div>
+                                        {group.models.map(model => (
+                                            <div
+                                                key={`${model.routeId || 'default'}:${model.id}`}
+                                                onClick={() => handleMobileModelSelect(model)}
+                                                className={`custom-select-option p-2 rounded-[var(--radius-2xl)] cursor-pointer flex items-center gap-2 ${
+                                                    selectedModel === model.id && (!selectedRouteId || selectedRouteId === model.routeId) ? 'active' : ''
+                                                }`}
+                                            >
+                                                <Icon icon="chip" className="w-4 h-4" />
+                                                <span className="text-sm truncate">{model.label || model.id}</span>
+                                            </div>
+                                        ))}
                                     </div>
                                 ))}
                             </div>

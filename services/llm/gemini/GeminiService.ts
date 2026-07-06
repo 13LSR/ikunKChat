@@ -1,4 +1,4 @@
-import { ILLMService, LLMProvider, ChatRequest, StreamChunk } from '../types';
+import { ILLMService, LLMProvider, ChatRequest, StreamChunk, ModelOption } from '../types';
 import { prepareChatPayload } from './payloadBuilder';
 import { executeStreamWithKeyRotation } from './apiExecutor';
 import type { GenerateContentResponse } from '@google/genai';
@@ -16,12 +16,19 @@ export class GeminiService implements ILLMService {
    * 获取 Gemini 模型列表
    * 从旧的 modelService.ts 迁移而来
    */
-  async getAvailableModels(apiKey: string, apiBaseUrl?: string): Promise<string[]> {
+  async getAvailableModels(apiKey: string, apiBaseUrl?: string): Promise<ModelOption[]> {
     const envModels = ((import.meta as any).env?.VITE_GEMINI_MODELS || '').split(',').map(m => m.trim()).filter(Boolean);
+    const toOptions = (models: string[]): ModelOption[] => models.map(id => ({
+      id,
+      label: id,
+      routeId: 'gemini',
+      channelName: 'Gemini',
+      provider: 'gemini',
+    }));
     const sanitizedApiKey = apiKey.trim().replace(/["']/g, '');
 
     if (!sanitizedApiKey) {
-      return envModels;
+      return toOptions(envModels);
     }
 
     try {
@@ -45,14 +52,14 @@ export class GeminiService implements ILLMService {
           }
         } catch (e) { /* Response was not JSON */ }
         console.warn(`Failed to get model list for API key ...${sanitizedApiKey.slice(-4)}: ${errorDetails}`);
-        return envModels;
+        return toOptions(envModels);
       }
 
       const data = await response.json();
       
       if (!data.models || !Array.isArray(data.models)) {
           console.warn("Invalid API response structure when fetching models.");
-          return envModels;
+          return toOptions(envModels);
       }
 
       const apiModels = new Set(data.models
@@ -69,11 +76,11 @@ export class GeminiService implements ILLMService {
         ? envModels.filter(m => apiModels.has(m))
         : Array.from(apiModels) as string[];
       
-      return availableModels;
+      return toOptions(availableModels);
       
     } catch (error) {
       console.warn(`Error fetching models for API key ...${sanitizedApiKey.slice(-4)}:`, error);
-      return envModels;
+      return toOptions(envModels);
     }
   }
 

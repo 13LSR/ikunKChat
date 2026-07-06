@@ -132,8 +132,10 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
     const chatSession = activeChat && activeChat.id === chatId
         ? activeChat
         : { id: chatId, messages: historyForAPI, model: defaultModel, personaId, title: "New Chat", createdAt: Date.now(), folderId: null };
+    const lockedModel = chatSession.model || defaultModel;
+    const lockedModelRouteId = chatSession.modelRouteId || settings.lastSelectedModelRouteId;
 
-    if (!chatSession.model) {
+    if (!lockedModel) {
       addToast('模型列表正在加载，请稍后再试。', 'info');
       setIsLoading(false);
       return;
@@ -146,7 +148,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
     const promptAttachments = lastUserMessage?.attachments || [];
     
     const modelMessage: Message = { id: crypto.randomUUID(), role: MessageRole.MODEL, content: "...", timestamp: Date.now(), groundingMetadata: null, thoughts: settings.showThoughts ? "" : undefined };
-    setChats(prev => prev.map(c => c.id === chatId ? { ...c, messages: [...c.messages, modelMessage] } : c));
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, model: lockedModel, modelRouteId: lockedModelRouteId, messages: [...c.messages, modelMessage] } : c));
     
     let fullResponse = "";
     let accumulatedThoughts = "";
@@ -175,7 +177,8 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
 
       const chatRequest: ChatRequest = {
         messages: historyForAPI,
-        model: chatSession.model,
+        model: lockedModel,
+        modelRouteId: lockedModelRouteId,
         persona: activePersona!,
         config: {
           temperature: settings.temperature,
@@ -196,7 +199,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
 
       const updateUI = () => {
         if (needsUpdate) {
-          setChats(prev => prev.map(c => c.id === chatId ? { ...c, messages: c.messages.map(m => m.id === modelMessage.id ? { ...m, content: fullResponse || '...', thoughts: settings.showThoughts ? accumulatedThoughts : undefined, thinkingTime } : m) } : c));
+          setChats(prev => prev.map(c => c.id === chatId ? { ...c, model: lockedModel, modelRouteId: lockedModelRouteId, messages: c.messages.map(m => m.id === modelMessage.id ? { ...m, content: fullResponse || '...', thoughts: settings.showThoughts ? accumulatedThoughts : undefined, thinkingTime } : m) } : c));
           needsUpdate = false;
         }
         if (!isCancelledRef.current && !streamHadError) {
@@ -218,7 +221,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
             isCancelledRef.current = true;
             streamHadError = true;
             fullResponse = "请求超时，模型响应时间过长或连接中断。";
-            setChats(p => p.map(c => c.id === chatId ? { ...c, messages: c.messages.map(m => m.id === modelMessage.id ? { ...m, content: fullResponse } : m) } : c));
+            setChats(p => p.map(c => c.id === chatId ? { ...c, model: lockedModel, modelRouteId: lockedModelRouteId, messages: c.messages.map(m => m.id === modelMessage.id ? { ...m, content: fullResponse } : m) } : c));
             addToast(fullResponse, 'error');
           }
         }, INACTIVITY_TIMEOUT_MS);
@@ -276,7 +279,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
           fullResponse = '模型没有返回内容，可能是请求被安全策略拦截或服务暂时繁忙。请换个说法再试一次。';
           addToast(fullResponse, 'error');
         }
-        setChats(prev => prev.map(c => c.id === chatId ? { ...c, messages: c.messages.map(m => m.id === modelMessage.id ? { ...m, content: fullResponse || '...', thoughts: settings.showThoughts ? accumulatedThoughts : undefined, groundingMetadata: finalGroundingMetadata, thinkingTime } : m) } : c));
+        setChats(prev => prev.map(c => c.id === chatId ? { ...c, model: lockedModel, modelRouteId: lockedModelRouteId, messages: c.messages.map(m => m.id === modelMessage.id ? { ...m, content: fullResponse || '...', thoughts: settings.showThoughts ? accumulatedThoughts : undefined, groundingMetadata: finalGroundingMetadata, thinkingTime } : m) } : c));
       }
     } catch (error) {
       logError(error, 'ChatStream');
@@ -284,7 +287,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
         streamHadError = true;
         const errorMessage = getPublicChatErrorMessage(error);
         addToast(errorMessage, 'error');
-        setChats(p => p.map(c => c.id === chatId ? { ...c, messages: c.messages.map(m => m.id === modelMessage.id ? { ...m, content: errorMessage } : m) } : c));
+        setChats(p => p.map(c => c.id === chatId ? { ...c, model: lockedModel, modelRouteId: lockedModelRouteId, messages: c.messages.map(m => m.id === modelMessage.id ? { ...m, content: errorMessage } : m) } : c));
       }
     } finally {
       clearTimeout(inactivityTimer); // Ensure timer is cleared in finally block
@@ -322,7 +325,7 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
                   : settings;
                 generateChatDetails(apiKeys, fullPrompt, settings.titleGenerationModel, titleSettings).then(({ title }) => {
                   console.log(`[标题生成] ✅ 应用 - 标题: \"${title}\"`);
-                  setChats(p => p.map(c => c.id === chatId ? { ...c, title } : c));
+                  setChats(p => p.map(c => c.id === chatId ? { ...c, model: lockedModel, modelRouteId: lockedModelRouteId, title } : c));
                 }).catch(error => {
                   logError(error, 'TitleGeneration');
                 });
@@ -441,7 +444,8 @@ export const useChatMessaging = ({ settings, activeChat, personas, setChats, set
       const persona = personas.find(p => p.id === currentPersonaId);
       // 优先级：角色默认模型 > 用户最后选择的模型 > 模型列表第一个
       const modelToUse = persona?.model ?? settings.lastSelectedModel ?? availableModels[0] ?? '';
-      const newChat: ChatSession = { id: crypto.randomUUID(), title: persona?.name || content.substring(0, 40) || "New Chat", icon: (persona?.avatar?.type === 'emoji' ? persona.avatar.value : '👤') || "💬", messages: [userMessage], createdAt: Date.now(), model: modelToUse, folderId: null, personaId: currentPersonaId };
+      const modelRouteId = persona?.modelRouteId ?? settings.lastSelectedModelRouteId;
+      const newChat: ChatSession = { id: crypto.randomUUID(), title: persona?.name || content.substring(0, 40) || "New Chat", icon: (persona?.avatar?.type === 'emoji' ? persona.avatar.value : '👤') || "💬", messages: [userMessage], createdAt: Date.now(), model: modelToUse, modelRouteId, folderId: null, personaId: currentPersonaId };
       currentChatId = newChat.id;
       history = newChat.messages;
       setChats(prev => [newChat, ...prev]);

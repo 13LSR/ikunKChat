@@ -95,16 +95,16 @@ export const useChatData = ({ settings, isStorageLoaded, onSettingsChange }: Use
   
   
 
-  const handleSetModelForActiveChat = useCallback((model: string) => {
+  const handleSetModelForActiveChat = useCallback((model: string, routeId?: string) => {
     if (activeChatId) {
-      setChats(p => p.map(c => c.id === activeChatId ? { ...c, model } : c));
+      setChats(p => p.map(c => c.id === activeChatId ? { ...c, model, modelRouteId: routeId } : c));
     }
     // 保存用户最后选择的模型，用于新建聊天时的记忆功能
-    onSettingsChange({ lastSelectedModel: model });
+    onSettingsChange({ lastSelectedModel: model, lastSelectedModelRouteId: routeId });
   }, [activeChatId, onSettingsChange]);
 
   // This function is now handled by a callback passed from App.tsx to ChatView
-  const handleSetCurrentModel = useCallback((model: string) => {}, []);
+  const handleSetCurrentModel = useCallback((model: string, routeId?: string) => {}, []);
 
   return {
     chats, setChats,

@@ -2,12 +2,14 @@ import { useCallback } from 'react';
 import { useSettings } from './useSettings';
 import { useTheme } from './useTheme';
 import { Settings, Persona } from '../types';
+import { ModelOption } from '../services/llm/types';
 
 interface UseAppSettingsReturn {
   // 设置相关
   settings: Settings;
   setSettings: (settings: Partial<Settings>) => void;
   availableModels: string[];
+  availableModelOptions: ModelOption[];
   isStorageLoaded: boolean;
   
   // 主题相关
@@ -25,7 +27,7 @@ interface UseAppSettingsReturn {
  * 职责：设置状态管理、主题应用、默认人格验证
  */
 export const useAppSettings = (): UseAppSettingsReturn => {
-  const { settings, setSettings, availableModels, isStorageLoaded } = useSettings();
+  const { settings, setSettings, availableModels, availableModelOptions, isStorageLoaded } = useSettings();
   
   // 应用主题
   useTheme(settings, isStorageLoaded);
@@ -60,6 +62,7 @@ export const useAppSettings = (): UseAppSettingsReturn => {
     settings,
     setSettings,
     availableModels,
+    availableModelOptions,
     isStorageLoaded,
     themeLoaded: isStorageLoaded,
     handleSettingsChange,

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Persona, Settings } from '../../types';
+import { ModelOption } from '../../services/llm/types';
 import { Icon } from '../Icon';
 import { useLocalization } from '../../contexts/LocalizationContext';
 import { fileToData } from '../../utils/fileUtils';
@@ -7,7 +8,7 @@ import { Switch } from '../Switch';
 import { useToast } from '../../contexts/ToastContext';
 import { PersonaAvatar } from '../common/PersonaAvatar';
 import { AIBuilder } from './AIBuilder';
-import { CustomSelect, SelectOption } from '../CustomSelect';
+import { CustomSelect } from '../CustomSelect';
 import { formatModelName } from '../../utils/textUtils';
 
 const newPersonaTemplate: Persona = {
@@ -25,13 +26,48 @@ interface PersonaEditorProps {
   onClose: () => void;
   settings: Settings;
   availableModels: string[];
+  availableModelOptions?: ModelOption[];
 }
 
-export const PersonaEditor: React.FC<PersonaEditorProps> = ({ personaToEdit, onSave, onClose, settings, availableModels }) => {
+export const PersonaEditor: React.FC<PersonaEditorProps> = ({ personaToEdit, onSave, onClose, settings, availableModels, availableModelOptions = [] }) => {
   const { t } = useLocalization();
   const { addToast } = useToast();
   const [persona, setPersona] = useState<Persona>(personaToEdit || newPersonaTemplate);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const hasRouteAwareModels = availableModelOptions.length > 0;
+
+  const getModelSelectValue = (model: string, routeId?: string) =>
+    hasRouteAwareModels ? `${routeId || 'default'}::${model}` : model;
+
+  const modelOptions = hasRouteAwareModels
+    ? availableModelOptions.map(m => ({
+        value: getModelSelectValue(m.id, m.routeId),
+        label: `${m.channelName || m.routeId || 'Model'} / ${formatModelName(m.id)}`,
+      }))
+    : availableModels.map(m => ({ value: m, label: formatModelName(m) }));
+
+  const selectedModel = persona.model ?? settings.lastSelectedModel ?? availableModels[0] ?? '';
+  const selectedRouteId =
+    persona.modelRouteId ??
+    settings.lastSelectedModelRouteId ??
+    availableModelOptions.find(m => m.id === selectedModel)?.routeId;
+
+  const handleModelChange = (value: string) => {
+    if (!hasRouteAwareModels) {
+      handleUpdate({ model: value, modelRouteId: undefined });
+      return;
+    }
+
+    const separatorIndex = value.indexOf('::');
+    if (separatorIndex === -1) {
+      handleUpdate({ model: value, modelRouteId: undefined });
+      return;
+    }
+
+    const routeId = value.slice(0, separatorIndex);
+    const model = value.slice(separatorIndex + 2);
+    handleUpdate({ model, modelRouteId: routeId === 'default' ? undefined : routeId });
+  };
 
   useEffect(() => {
     setPersona(personaToEdit || newPersonaTemplate);
@@ -110,9 +146,9 @@ export const PersonaEditor: React.FC<PersonaEditorProps> = ({ personaToEdit, onS
                         <div className="flex justify-between items-center">
                           <label className="font-medium">{t('model')}</label>
                           <CustomSelect
-                            options={availableModels.map(m => ({ value: m, label: formatModelName(m) }))}
-                            value={persona.model ?? settings.lastSelectedModel ?? availableModels[0] ?? ''}
-                            onChange={value => handleUpdate({ model: value })}
+                            options={modelOptions}
+                            value={getModelSelectValue(selectedModel, selectedRouteId)}
+                            onChange={handleModelChange}
                             className="w-48"
                           />
                         </div>

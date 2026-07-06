@@ -6,11 +6,14 @@ import { Persona } from '../types';
 import { PersonaAvatar } from './common/PersonaAvatar';
 import { CustomSelect, SelectOption } from './CustomSelect';
 import { formatModelName } from '../utils/textUtils';
+import { ModelOption } from '../services/llm/types';
 
 interface WelcomeViewProps {
-  onSetCurrentModel: (model: string) => void;
+  onSetCurrentModel: (model: string, routeId?: string) => void;
   currentModel: string;
+  currentModelRouteId?: string;
   availableModels: string[];
+  availableModelOptions?: ModelOption[];
   personas: Persona[];
   onStartChat: (personaId: string) => void;
   settings: any;
