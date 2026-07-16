@@ -1,11 +1,12 @@
 ACCESS_PASSWORD="local-dev-password"
+ADMIN_PASSWORD="local-admin-password"
 AUTH_SECRET="replace-with-a-long-random-string"
 AI_ROUTES_JSON='[
   {
     "id": "api-one",
     "provider": "openai",
     "baseUrl": "https://api-one.example.com",
-    "apiKey": "sk-local-dev",
+    "apiKeys": ["sk-local-dev-one", "sk-local-dev-two"],
     "models": ["model-a", "model-b"]
   },
   {

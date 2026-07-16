@@ -1,3 +1,9 @@
 name = "ikunkchat-ai-proxy"
 main = "ai-proxy.js"
 compatibility_date = "2024-09-23"
+
+[[d1_databases]]
+binding = "ANALYTICS_DB"
+database_name = "ikunkchat-analytics"
+database_id = "replace-with-your-d1-database-id"
+migrations_dir = "migrations"

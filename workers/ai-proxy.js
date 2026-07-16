@@ -1,7 +1,8 @@
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' };
+const routeKeyPositions = new Map();
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') {
@@ -17,6 +18,23 @@ export default {
         return handleAuthVerify(request, env);
       }
 
+      if (url.pathname === '/admin/status' && request.method === 'GET') {
+        return json({
+          enabled: Boolean(env.ADMIN_PASSWORD),
+          analyticsEnabled: Boolean(env.ANALYTICS_DB),
+        }, request);
+      }
+
+      if (url.pathname === '/admin/auth' && request.method === 'POST') {
+        return handleAdminAuth(request, env);
+      }
+
+      if (url.pathname === '/admin/analytics' && request.method === 'GET') {
+        const auth = await requireAdmin(request, env);
+        if (auth) return auth;
+        return handleAdminAnalytics(request, env);
+      }
+
       if (url.pathname === '/v1/models' && request.method === 'GET') {
         const auth = await requireAuth(request, env);
         if (auth) return auth;
@@ -26,7 +44,7 @@ export default {
       if (url.pathname === '/v1/chat/completions' && request.method === 'POST') {
         const auth = await requireAuth(request, env);
         if (auth) return auth;
-        return handleChatCompletions(request, env);
+        return handleChatCompletions(request, env, ctx);
       }
 
       return json({ error: { message: 'Not found' } }, request, 404);
@@ -38,7 +56,7 @@ export default {
 
 async function handleAuthVerify(request, env) {
   if (!env.ACCESS_PASSWORD) {
-    return json({ token: await createToken(env, false), expiresAt: Date.now() + 12 * 60 * 60 * 1000 }, request);
+    return json({ token: await createToken(env, false, undefined, 'user'), expiresAt: Date.now() + 12 * 60 * 60 * 1000 }, request);
   }
 
   const body = await request.json().catch(() => ({}));
@@ -49,10 +67,26 @@ async function handleAuthVerify(request, env) {
   const rememberMe = Boolean(body.rememberMe);
   const ttlMs = rememberMe ? 30 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000;
   const expiresAt = Date.now() + ttlMs;
-  return json({ token: await createToken(env, rememberMe, expiresAt), expiresAt }, request);
+  return json({ token: await createToken(env, rememberMe, expiresAt, 'user'), expiresAt }, request);
 }
 
-async function handleChatCompletions(request, env) {
+async function handleAdminAuth(request, env) {
+  if (!env.ADMIN_PASSWORD) {
+    return json({ error: { message: 'Admin password is not configured.' } }, request, 503);
+  }
+
+  const body = await request.json().catch(() => ({}));
+  if (body.password !== env.ADMIN_PASSWORD) {
+    return json({ error: { message: 'Invalid admin password' } }, request, 401);
+  }
+
+  const rememberMe = Boolean(body.rememberMe);
+  const ttlMs = rememberMe ? 7 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000;
+  const expiresAt = Date.now() + ttlMs;
+  return json({ token: await createToken(env, rememberMe, expiresAt, 'admin'), expiresAt }, request);
+}
+
+async function handleChatCompletions(request, env, ctx) {
   const body = await request.json();
   const route = findRouteByModel(env, body.model, body.kchat?.routeId);
 
@@ -61,11 +95,19 @@ async function handleChatCompletions(request, env) {
     return json({ error: { message: `No upstream route configured for model: ${body.model}${routeHint}` } }, request, 400);
   }
 
+  const requestId = crypto.randomUUID();
+  const recordAttempt = createAttemptRecorder(env, ctx, {
+    requestId,
+    route,
+    model: body.model,
+    upstreamModel: getUpstreamModelName(body.model, route),
+  });
+
   if (route.provider === 'gemini') {
-    return proxyGeminiChat(body, route, request);
+    return proxyGeminiChat(body, route, request, recordAttempt);
   }
 
-  return proxyOpenAIChat(body, route, request);
+  return proxyOpenAIChat(body, route, request, recordAttempt);
 }
 
 function listModels(env) {
@@ -90,9 +132,56 @@ function getRoutes(env) {
     provider: String(route.provider || 'openai').toLowerCase(),
     name: typeof route.name === 'string' ? route.name : '',
     baseUrl: String(route.baseUrl || '').replace(/\/+$/, ''),
+    apiKeys: normalizeApiKeys(route),
     models: Array.isArray(route.models) ? route.models : [],
     modelMap: route.modelMap && typeof route.modelMap === 'object' ? route.modelMap : {},
   }));
+}
+
+function normalizeApiKeys(route) {
+  const configuredKeys = Array.isArray(route.apiKeys) ? route.apiKeys : [];
+  const legacyKeys = Array.isArray(route.apiKey)
+    ? route.apiKey
+    : typeof route.apiKey === 'string'
+      ? [route.apiKey]
+      : [];
+  const seen = new Set();
+
+  return [...configuredKeys, ...legacyKeys]
+    .map((entry, index) => normalizeApiKeyEntry(entry, index))
+    .filter((entry) => {
+      if (!entry || seen.has(entry.value)) return false;
+      seen.add(entry.value);
+      return true;
+    });
+}
+
+function normalizeApiKeyEntry(entry, index) {
+  if (typeof entry === 'string') {
+    const value = entry.trim();
+    if (!value) return null;
+    return {
+      value,
+      id: `key-${String(index + 1).padStart(2, '0')}`,
+      hint: maskApiKey(value),
+    };
+  }
+
+  if (!entry || typeof entry !== 'object') return null;
+
+  const value = String(entry.key || entry.value || entry.apiKey || '').trim();
+  if (!value) return null;
+
+  return {
+    value,
+    id: String(entry.id || entry.name || `key-${String(index + 1).padStart(2, '0')}`).trim(),
+    hint: maskApiKey(value),
+  };
+}
+
+function maskApiKey(value) {
+  if (value.length <= 8) return `****${value.slice(-2)}`;
+  return `${value.slice(0, 4)}****${value.slice(-4)}`;
 }
 
 function findRouteByModel(env, model, routeId) {
@@ -104,16 +193,18 @@ function findRouteByModel(env, model, routeId) {
   return routes.find((route) => route.models.includes(model));
 }
 
-async function proxyOpenAIChat(body, route, request) {
-  const upstream = await fetch(getOpenAICompatibleChatEndpoint(route), {
+async function proxyOpenAIChat(body, route, request, recordAttempt) {
+  const endpoint = getOpenAICompatibleChatEndpoint(route);
+  const payload = JSON.stringify(prepareOpenAICompatibleBody(body, route));
+  const upstream = await fetchWithKeyRotation(route, (apiKey) => fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream, application/json',
-      Authorization: `Bearer ${route.apiKey}`,
+      Authorization: `Bearer ${apiKey.value}`,
     },
-    body: JSON.stringify(prepareOpenAICompatibleBody(body, route)),
-  });
+    body: payload,
+  }), recordAttempt);
 
   return withCors(new Response(upstream.body, {
     status: upstream.status,
@@ -172,18 +263,18 @@ function compactObject(value) {
   );
 }
 
-async function proxyGeminiChat(body, route, request) {
+async function proxyGeminiChat(body, route, request, recordAttempt) {
   const geminiBody = openAIToGemini(body);
   const endpoint = `${route.baseUrl || 'https://generativelanguage.googleapis.com'}/v1beta/models/${encodeURIComponent(body.model)}:streamGenerateContent?alt=sse`;
 
-  const upstream = await fetch(endpoint, {
+  const upstream = await fetchWithKeyRotation(route, (apiKey) => fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-goog-api-key': route.apiKey,
+      'x-goog-api-key': apiKey.value,
     },
     body: JSON.stringify(geminiBody),
-  });
+  }), recordAttempt);
 
   if (!upstream.ok) {
     const message = await upstream.text();
@@ -254,6 +345,281 @@ async function proxyGeminiChat(body, route, request) {
       'Cache-Control': 'no-store',
     },
   }), request);
+}
+
+async function fetchWithKeyRotation(route, requestFactory, recordAttempt) {
+  const apiKeys = getRotatedApiKeys(route);
+  let lastError;
+  let requestDurationMs = 0;
+
+  for (let index = 0; index < apiKeys.length; index += 1) {
+    const startedAt = Date.now();
+    const apiKey = apiKeys[index];
+    const hasAnotherKey = index < apiKeys.length - 1;
+
+    try {
+      const response = await requestFactory(apiKey);
+      const durationMs = Date.now() - startedAt;
+      requestDurationMs += durationMs;
+      const willRetry = hasAnotherKey && shouldRetryWithNextKey(response.status);
+
+      notifyAttempt(recordAttempt, {
+        apiKey,
+        attempt: index + 1,
+        status: response.status,
+        success: response.ok,
+        durationMs,
+        requestDurationMs,
+        finalAttempt: !willRetry,
+        error: response.ok ? '' : response.statusText,
+      });
+
+      if (!willRetry) {
+        return response;
+      }
+
+      await response.body?.cancel().catch(() => {});
+    } catch (error) {
+      lastError = error;
+      const durationMs = Date.now() - startedAt;
+      requestDurationMs += durationMs;
+
+      notifyAttempt(recordAttempt, {
+        apiKey,
+        attempt: index + 1,
+        status: null,
+        success: false,
+        durationMs,
+        requestDurationMs,
+        finalAttempt: !hasAnotherKey,
+        error: error?.message || 'Network error',
+      });
+
+      if (!hasAnotherKey) throw error;
+    }
+  }
+
+  throw lastError || new Error(`All API keys failed for route: ${getRouteLabel(route)}`);
+}
+
+function notifyAttempt(recordAttempt, details) {
+  if (!recordAttempt) return;
+
+  try {
+    recordAttempt(details);
+  } catch {
+    // Analytics must never interrupt an upstream request.
+  }
+}
+
+function getRotatedApiKeys(route) {
+  if (!route.apiKeys.length) {
+    throw new Error(`No API key configured for route: ${getRouteLabel(route)}`);
+  }
+
+  const rotationKey = getRouteRotationKey(route);
+  const startIndex = (routeKeyPositions.get(rotationKey) || 0) % route.apiKeys.length;
+  routeKeyPositions.set(rotationKey, (startIndex + 1) % route.apiKeys.length);
+
+  return route.apiKeys.map((_, offset) => route.apiKeys[(startIndex + offset) % route.apiKeys.length]);
+}
+
+function getRouteRotationKey(route) {
+  return route.id || `${route.provider}:${route.baseUrl}:${route.models.join(',')}`;
+}
+
+function getRouteLabel(route) {
+  return route.id || route.name || route.provider || 'unknown';
+}
+
+function shouldRetryWithNextKey(status) {
+  return status === 401 || status === 403 || status === 408 || status === 429 || status >= 500;
+}
+
+function createAttemptRecorder(env, ctx, base) {
+  return (details) => {
+    const task = recordAnalyticsAttempt(env, base, details).catch(() => {});
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(task);
+    } else {
+      void task;
+    }
+  };
+}
+
+async function recordAnalyticsAttempt(env, base, details) {
+  if (!env.ANALYTICS_DB) return;
+
+  await env.ANALYTICS_DB.prepare(`
+    INSERT INTO ai_usage_logs (
+      request_id,
+      route_id,
+      route_name,
+      provider,
+      model,
+      upstream_model,
+      key_id,
+      key_hint,
+      attempt,
+      status,
+      success,
+      duration_ms,
+      request_duration_ms,
+      final_attempt,
+      error
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    base.requestId,
+    String(base.route.id || base.route.provider || 'unknown'),
+    String(base.route.name || base.route.id || base.route.provider || 'Unknown'),
+    String(base.route.provider || 'openai'),
+    String(base.model || ''),
+    String(base.upstreamModel || base.model || ''),
+    details.apiKey.id,
+    details.apiKey.hint,
+    details.attempt,
+    details.status,
+    details.success ? 1 : 0,
+    details.durationMs,
+    details.requestDurationMs,
+    details.finalAttempt ? 1 : 0,
+    String(details.error || '').slice(0, 500)
+  ).run();
+}
+
+async function handleAdminAnalytics(request, env) {
+  if (!env.ANALYTICS_DB) {
+    return json({ error: { message: 'Analytics database is not configured.' } }, request, 503);
+  }
+
+  const url = new URL(request.url);
+  const range = normalizeAnalyticsRange(url.searchParams.get('range'));
+  const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 100, 1), 200);
+  const since = new Date(Date.now() - range.durationMs).toISOString();
+  const bucketExpression = range.hourly
+    ? "substr(created_at, 1, 13) || ':00:00Z'"
+    : "substr(created_at, 1, 10) || 'T00:00:00Z'";
+
+  const [summaryResult, attemptResult, timelineResult, channelResult, keyResult, recentResult] = await env.ANALYTICS_DB.batch([
+    env.ANALYTICS_DB.prepare(`
+      SELECT
+        COUNT(*) AS requests,
+        COALESCE(SUM(success), 0) AS successes,
+        COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS failures,
+        COALESCE(ROUND(AVG(request_duration_ms)), 0) AS avg_latency_ms
+      FROM ai_usage_logs
+      WHERE created_at >= ? AND final_attempt = 1
+    `).bind(since),
+    env.ANALYTICS_DB.prepare(`
+      SELECT
+        COUNT(*) AS attempts,
+        COALESCE(SUM(CASE WHEN final_attempt = 0 THEN 1 ELSE 0 END), 0) AS retries
+      FROM ai_usage_logs
+      WHERE created_at >= ?
+    `).bind(since),
+    env.ANALYTICS_DB.prepare(`
+      SELECT
+        ${bucketExpression} AS bucket,
+        COUNT(*) AS requests,
+        COALESCE(SUM(success), 0) AS successes,
+        COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS failures
+      FROM ai_usage_logs
+      WHERE created_at >= ? AND final_attempt = 1
+      GROUP BY bucket
+      ORDER BY bucket ASC
+    `).bind(since),
+    env.ANALYTICS_DB.prepare(`
+      SELECT
+        route_id AS routeId,
+        route_name AS routeName,
+        provider,
+        COUNT(*) AS requests,
+        COALESCE(SUM(success), 0) AS successes,
+        COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS failures,
+        COALESCE(ROUND(AVG(request_duration_ms)), 0) AS avgLatencyMs
+      FROM ai_usage_logs
+      WHERE created_at >= ? AND final_attempt = 1
+      GROUP BY route_id, route_name, provider
+      ORDER BY requests DESC
+    `).bind(since),
+    env.ANALYTICS_DB.prepare(`
+      SELECT
+        route_id AS routeId,
+        route_name AS routeName,
+        key_id AS keyId,
+        key_hint AS keyHint,
+        COUNT(*) AS attempts,
+        COALESCE(SUM(success), 0) AS successes,
+        COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS failures,
+        MAX(created_at) AS lastUsedAt
+      FROM ai_usage_logs
+      WHERE created_at >= ?
+      GROUP BY route_id, route_name, key_id, key_hint
+      ORDER BY attempts DESC, route_name ASC, key_id ASC
+    `).bind(since),
+    env.ANALYTICS_DB.prepare(`
+      SELECT
+        id,
+        request_id AS requestId,
+        created_at AS createdAt,
+        route_id AS routeId,
+        route_name AS routeName,
+        provider,
+        model,
+        upstream_model AS upstreamModel,
+        key_id AS keyId,
+        key_hint AS keyHint,
+        attempt,
+        status,
+        success,
+        duration_ms AS durationMs,
+        request_duration_ms AS requestDurationMs,
+        final_attempt AS finalAttempt,
+        error
+      FROM ai_usage_logs
+      WHERE created_at >= ?
+      ORDER BY id DESC
+      LIMIT ?
+    `).bind(since, limit),
+  ]);
+
+  const summaryRow = summaryResult.results?.[0] || {};
+  const attemptRow = attemptResult.results?.[0] || {};
+  const requests = Number(summaryRow.requests || 0);
+  const successes = Number(summaryRow.successes || 0);
+
+  return json({
+    range: range.id,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      requests,
+      attempts: Number(attemptRow.attempts || 0),
+      successes,
+      failures: Number(summaryRow.failures || 0),
+      retries: Number(attemptRow.retries || 0),
+      successRate: requests > 0 ? Math.round((successes / requests) * 1000) / 10 : 0,
+      avgLatencyMs: Number(summaryRow.avg_latency_ms || 0),
+    },
+    timeline: timelineResult.results || [],
+    channels: channelResult.results || [],
+    keys: keyResult.results || [],
+    recent: (recentResult.results || []).map((item) => ({
+      ...item,
+      success: Boolean(item.success),
+      finalAttempt: Boolean(item.finalAttempt),
+    })),
+  }, request);
+}
+
+function normalizeAnalyticsRange(value) {
+  const ranges = {
+    '24h': { id: '24h', durationMs: 24 * 60 * 60 * 1000, hourly: true },
+    '7d': { id: '7d', durationMs: 7 * 24 * 60 * 60 * 1000, hourly: true },
+    '30d': { id: '30d', durationMs: 30 * 24 * 60 * 60 * 1000, hourly: false },
+    '90d': { id: '90d', durationMs: 90 * 24 * 60 * 60 * 1000, hourly: false },
+  };
+
+  return ranges[value] || ranges['24h'];
 }
 
 function openAIToGemini(body) {
@@ -335,26 +701,47 @@ async function requireAuth(request, env) {
 
   const authorization = request.headers.get('Authorization') || '';
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-  const valid = token ? await verifyToken(token, env) : false;
+  const valid = token ? await verifyToken(token, env, 'user') : false;
 
   return valid ? null : json({ error: { message: 'Unauthorized' } }, request, 401);
 }
 
-async function createToken(env, rememberMe, expiresAt = Date.now() + 12 * 60 * 60 * 1000) {
-  const payload = base64UrlEncode(JSON.stringify({ exp: expiresAt, rememberMe }));
-  const signature = await sign(payload, env.AUTH_SECRET || env.ACCESS_PASSWORD || 'dev-secret');
+async function requireAdmin(request, env) {
+  if (!env.ADMIN_PASSWORD) {
+    return json({ error: { message: 'Admin password is not configured.' } }, request, 503);
+  }
+
+  const authorization = request.headers.get('Authorization') || '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  const valid = token ? await verifyToken(token, env, 'admin') : false;
+
+  return valid ? null : json({ error: { message: 'Admin authorization required' } }, request, 401);
+}
+
+async function createToken(env, rememberMe, expiresAt = Date.now() + 12 * 60 * 60 * 1000, scope = 'user') {
+  const payload = base64UrlEncode(JSON.stringify({ exp: expiresAt, rememberMe, scope }));
+  const signature = await sign(payload, getTokenSecret(env));
   return `${payload}.${signature}`;
 }
 
-async function verifyToken(token, env) {
+async function verifyToken(token, env, expectedScope = 'user') {
   const [payload, signature] = token.split('.');
   if (!payload || !signature) return false;
 
-  const expected = await sign(payload, env.AUTH_SECRET || env.ACCESS_PASSWORD || 'dev-secret');
+  const expected = await sign(payload, getTokenSecret(env));
   if (signature !== expected) return false;
 
-  const data = JSON.parse(base64UrlDecode(payload));
-  return typeof data.exp === 'number' && Date.now() < data.exp;
+  try {
+    const data = JSON.parse(base64UrlDecode(payload));
+    const scope = data.scope || 'user';
+    return typeof data.exp === 'number' && Date.now() < data.exp && scope === expectedScope;
+  } catch {
+    return false;
+  }
+}
+
+function getTokenSecret(env) {
+  return env.AUTH_SECRET || env.ADMIN_AUTH_SECRET || env.ACCESS_PASSWORD || env.ADMIN_PASSWORD || 'dev-secret';
 }
 
 async function sign(value, secret) {

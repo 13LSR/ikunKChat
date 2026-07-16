@@ -15,7 +15,20 @@ Do not set `VITE_ACCESS_PASSWORD`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `VITE_API
 
 ## Worker Secrets
 
-Configure the Worker with route data. Each route owns its base URL, API key, and model list. The frontend receives only model metadata and channel names, never API keys. Use `id` as the stable route identifier and optional `name` as the user-facing channel label.
+Configure the Worker with route data. Each route owns its base URL, API keys, and model list. The frontend receives only model metadata and channel names, never API keys. Use `id` as the stable route identifier and optional `name` as the user-facing channel label.
+
+Use `apiKeys` when a route has multiple keys. Requests start with the next key in that route's round-robin order. If a request fails because of a network error or returns `401`, `403`, `408`, `429`, or `5xx`, the Worker tries the remaining keys in order. Cloudflare may run multiple Worker isolates, so the rotation is balanced per isolate rather than as one globally strict counter.
+
+The legacy singular `apiKey` field remains supported. If both `apiKeys` and `apiKey` are present, non-empty unique values from both fields participate in rotation.
+
+For readable analytics, each item in `apiKeys` may also be an object with a stable `id` and secret `key`. The dashboard stores only the ID and a masked hint, never the complete key:
+
+```json
+"apiKeys": [
+  { "id": "nvidia-01", "key": "nvapi-secret-one" },
+  { "id": "nvidia-02", "key": "nvapi-secret-two" }
+]
+```
 
 For OpenAI-compatible APIs, `baseUrl` should be the API origin without `/v1`. If a provider documents `https://api.example.com/v1/chat/completions`, configure `baseUrl` as `https://api.example.com`.
 
@@ -65,7 +78,11 @@ Example NVIDIA route:
   "name": "NVIDIA",
   "provider": "nvidia",
   "baseUrl": "https://integrate.api.nvidia.com",
-  "apiKey": "nvapi-...",
+  "apiKeys": [
+    { "id": "nvidia-01", "key": "nvapi-key-1" },
+    { "id": "nvidia-02", "key": "nvapi-key-2" },
+    { "id": "nvidia-03", "key": "nvapi-key-3" }
+  ],
   "models": ["gpt-oss-120b"],
   "modelMap": {
     "gpt-oss-120b": "openai/gpt-oss-120b"
@@ -81,11 +98,24 @@ These commands require Cloudflare credentials, so run them locally after editing
 cd workers
 npx wrangler secret put AI_ROUTES_JSON --config wrangler.ai-proxy.example.toml
 npx wrangler secret put ACCESS_PASSWORD --config wrangler.ai-proxy.example.toml
+npx wrangler secret put ADMIN_PASSWORD --config wrangler.ai-proxy.example.toml
 npx wrangler secret put AUTH_SECRET --config wrangler.ai-proxy.example.toml
 npx wrangler deploy --config wrangler.ai-proxy.example.toml
 ```
 
-`ACCESS_PASSWORD` enables Worker-side login. `AUTH_SECRET` should be a long random string used to sign browser tokens.
+`ACCESS_PASSWORD` enables the public site login. `ADMIN_PASSWORD` protects `/admin` and the analytics API. `AUTH_SECRET` should be a long random string used to sign browser tokens.
+
+## Analytics Database
+
+The admin dashboard uses Cloudflare D1. Create the database, copy the returned ID into `workers/wrangler.ai-proxy.example.toml`, then apply the migration:
+
+```bash
+cd workers
+npx wrangler d1 create ikunkchat-analytics --config wrangler.ai-proxy.example.toml
+npx wrangler d1 migrations apply ikunkchat-analytics --remote --config wrangler.ai-proxy.example.toml
+```
+
+The Worker records one row for each upstream Key attempt. It stores the route, provider, model, Key ID, masked Key hint, status, retry/final-attempt state, and latency. Raw API keys and prompts are never stored.
 
 ## Local Verification
 

@@ -282,8 +282,13 @@ export const useSettings = () => {
 
   useEffect(() => {
     const handleAuthChanged = () => setAuthVersion(version => version + 1);
+    const handleWindowFocus = () => setAuthVersion(version => version + 1);
     window.addEventListener('kchat-auth-changed', handleAuthChanged);
-    return () => window.removeEventListener('kchat-auth-changed', handleAuthChanged);
+    window.addEventListener('focus', handleWindowFocus);
+    return () => {
+      window.removeEventListener('kchat-auth-changed', handleAuthChanged);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
   }, []);
 
   const availableModels = availableModelOptions.map(option => option.id);

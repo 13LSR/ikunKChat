@@ -15,6 +15,7 @@ export class ProxyLLMService implements ILLMService {
     try {
       const response = await fetch(`${baseUrl}/v1/models`, {
         method: 'GET',
+        cache: 'no-store',
         headers: authService.getProxyAuthorizationHeaders(),
       });
 
