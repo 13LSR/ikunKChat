@@ -96,7 +96,7 @@ VITE_TITLE_MODEL_NAME="用于标题生成的模型名"
 
 ## Worker 配置
 
-Worker 的核心变量是 `AI_ROUTES_JSON`。每个渠道包含 `id`、`name`、`provider`、`baseUrl`、`apiKey`、`models`，必要时可加 `modelMap`。
+Worker 的核心变量是 `AI_ROUTES_JSON`。每个渠道包含 `id`、`name`、`provider`、`baseUrl`、`apiKey` 或 `apiKeys`、`models`，必要时可加 `modelMap`。同一渠道有多个 Key 时，推荐使用 `apiKeys` 数组；Worker 会轮询 Key，并在网络错误、限流或上游错误时尝试剩余 Key。
 
 示例：
 
@@ -115,7 +115,10 @@ Worker 的核心变量是 `AI_ROUTES_JSON`。每个渠道包含 `id`、`name`、
     "name": "NVIDIA",
     "provider": "nvidia",
     "baseUrl": "https://integrate.api.nvidia.com",
-    "apiKey": "nvapi-...",
+    "apiKeys": [
+      { "id": "nvidia-01", "key": "nvapi-..." },
+      { "id": "nvidia-02", "key": "nvapi-..." }
+    ],
     "models": ["gpt-oss-120b"],
     "modelMap": {
       "gpt-oss-120b": "openai/gpt-oss-120b"
@@ -124,18 +127,25 @@ Worker 的核心变量是 `AI_ROUTES_JSON`。每个渠道包含 `id`、`name`、
 ]
 ```
 
-更新线上 Worker secret：
+### 更新已经部署的 Worker
+
+如果 Worker 已经在线运行，不需要重新创建 Worker，也不需要重复设置没有变化的 Secret。确认 `workers/wrangler.ai-proxy.example.toml` 中的 `name` 仍是现有 Worker 名称，然后在项目目录执行：
 
 ```bash
 cd workers
+npx wrangler d1 migrations apply ikunkchat-analytics --remote --config wrangler.ai-proxy.example.toml
+npx wrangler secret put ADMIN_PASSWORD --config wrangler.ai-proxy.example.toml
 npx wrangler secret put AI_ROUTES_JSON --config wrangler.ai-proxy.example.toml
-```
-
-如果改了 `workers/ai-proxy.js`，还需要重新部署 Worker：
-
-```bash
 npx wrangler deploy --config wrangler.ai-proxy.example.toml
 ```
+
+- `d1 migrations apply`：把后台统计表更新到已经绑定的远程 D1 数据库；已经执行过相同迁移时 Wrangler 会自动跳过。
+- `ADMIN_PASSWORD`：本次新增的后台登录密码，只需首次启用后台时设置，之后密码不变可跳过。
+- `AI_ROUTES_JSON`：只有渠道、模型或 Key 变化时才需要更新。输入时只粘贴从 `[` 到 `]` 的 JSON，不要粘贴 `.dev.vars` 外层的变量名和引号。
+- `ACCESS_PASSWORD`、`AUTH_SECRET`：如果线上已有且内容不变，无需重新设置。
+- `wrangler deploy`：将当前 `workers/ai-proxy.js` 更新到同名的现有 Worker，不会重新创建 Pages 站点。
+
+如果尚未给线上 Worker 创建或绑定统计数据库，先按 [Cloudflare Worker API Proxy](docs/cloudflare-worker-proxy.md#analytics-database) 中的首次 D1 配置完成一次创建和绑定，再执行以上增量更新命令。
 
 更多说明见 [Cloudflare Worker API Proxy](docs/cloudflare-worker-proxy.md)。
 
