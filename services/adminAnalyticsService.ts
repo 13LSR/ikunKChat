@@ -20,6 +20,10 @@ export interface AnalyticsTimelineItem {
   requests: number;
   successes: number;
   failures: number;
+  retries: number;
+  attempts: number;
+  failureRate: number;
+  retryRate: number;
 }
 
 export interface AnalyticsChannelItem {
@@ -63,9 +67,36 @@ export interface AnalyticsRecentItem {
   error: string;
 }
 
+export interface AnalyticsConfiguredKey {
+  id: string;
+  hint: string;
+}
+
+export interface AnalyticsConfiguredRoute {
+  routeId: string;
+  routeName: string;
+  provider: string;
+  modelCount: number;
+  models: string[];
+  keyCount: number;
+  keys: AnalyticsConfiguredKey[];
+  issues?: string[];
+}
+
+export interface AnalyticsConfiguration {
+  routeCount: number;
+  modelCount: number;
+  keyCount: number;
+  routes: AnalyticsConfiguredRoute[];
+  warningCount?: number;
+  warnings?: string[];
+}
+
 export interface AdminAnalyticsData {
   range: AnalyticsRange;
   generatedAt: string;
+  warning?: string;
+  configuration?: AnalyticsConfiguration;
   summary: AnalyticsSummary;
   timeline: AnalyticsTimelineItem[];
   channels: AnalyticsChannelItem[];

@@ -49,6 +49,8 @@ export const AppContainer: React.FC = () => {
     availableModels,
     availableModelOptions,
     isStorageLoaded,
+    refreshModels,
+    isRefreshingModels,
     handleSettingsChange,
     validateAndUpdateDefaultPersona
   } = useAppSettings();
@@ -200,6 +202,12 @@ export const AppContainer: React.FC = () => {
         settings={settings}
         availableModels={availableModels}
         availableModelOptions={availableModelOptions}
+        onRefreshModels={async () => {
+          const success = await refreshModels();
+          addToast(success ? '模型列表已刷新' : '模型列表刷新失败，请稍后重试', success ? 'success' : 'error');
+          return success;
+        }}
+        isRefreshingModels={isRefreshingModels}
         chats={chats}
         isLoading={isLoading}
         onCancelGeneration={handleCancel}

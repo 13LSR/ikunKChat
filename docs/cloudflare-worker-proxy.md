@@ -100,10 +100,24 @@ npx wrangler secret put AI_ROUTES_JSON --config wrangler.ai-proxy.example.toml
 npx wrangler secret put ACCESS_PASSWORD --config wrangler.ai-proxy.example.toml
 npx wrangler secret put ADMIN_PASSWORD --config wrangler.ai-proxy.example.toml
 npx wrangler secret put AUTH_SECRET --config wrangler.ai-proxy.example.toml
+# 可选：为管理员 Token 使用独立签名密钥
+npx wrangler secret put ADMIN_AUTH_SECRET --config wrangler.ai-proxy.example.toml
 npx wrangler deploy --config wrangler.ai-proxy.example.toml
 ```
 
-`ACCESS_PASSWORD` enables the public site login. `ADMIN_PASSWORD` protects `/admin` and the analytics API. `AUTH_SECRET` should be a long random string used to sign browser tokens.
+`ACCESS_PASSWORD` enables the public site login. `ADMIN_PASSWORD` protects `/admin` and the analytics API. `AUTH_SECRET` should be a long random string used to sign user browser tokens. `ADMIN_AUTH_SECRET` is optional but recommended when you want administrator tokens to use a separate signing key.
+
+The Worker allows the production origins listed in the project README by default: `https://hjm.331106.xyz`, `https://yx-hjm.331106.xyz`, and `https://eo-hjm.331106.xyz`. For another Pages custom domain, set `CORS_ALLOWED_ORIGINS` to a comma- or newline-separated list of exact origins, for example `https://chat.example.com,https://chat-backup.example.com`, then redeploy the Worker. Do not include paths or trailing slashes.
+
+## Security Boundary
+
+The upstream API keys remain inside the Worker runtime and are never returned to the frontend. The browser can see the public Worker URL, model names, channel names, and its own short-lived user token.
+
+Anyone who knows `ACCESS_PASSWORD` can still obtain a user token and submit requests through the Worker. That is expected for a shared-password public site: the key is hidden, but the upstream quota is being shared. The Worker applies a per-source-IP request limit and only allows configured frontend origins, but this is not a substitute for per-user accounts or durable quota storage.
+
+Use different values for `ACCESS_PASSWORD` and `ADMIN_PASSWORD`. If `AUTH_SECRET` is omitted, user tokens fall back to the user password, while administrator tokens fall back to `ADMIN_AUTH_SECRET`, `AUTH_SECRET`, and then the administrator password. Set `AUTH_SECRET` and preferably `ADMIN_AUTH_SECRET` explicitly in production.
+
+Do not put upstream keys, `ACCESS_PASSWORD`, `ADMIN_PASSWORD`, `AUTH_SECRET`, or any other secret in a `VITE_*` Pages variable. If a secret has ever been placed in a frontend variable or committed file, rotate it at the provider immediately.
 
 ## Analytics Database
 
@@ -116,6 +130,8 @@ npx wrangler d1 migrations apply ikunkchat-analytics --remote --config wrangler.
 ```
 
 The Worker records one row for each upstream Key attempt. It stores the route, provider, model, Key ID, masked Key hint, status, retry/final-attempt state, and latency. Raw API keys and prompts are never stored.
+
+Analytics rows older than 90 days are removed by the Worker Cron Trigger configured in `workers/wrangler.ai-proxy.example.toml`. The default schedule is daily at 03:00 UTC. The cleanup also runs opportunistically after analytics writes, so local development does not require a Cron Trigger.
 
 ## Local Verification
 

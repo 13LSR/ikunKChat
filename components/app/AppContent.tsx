@@ -18,6 +18,8 @@ interface AppContentProps {
   settings: Settings;
   availableModels: string[];
   availableModelOptions: ModelOption[];
+  onRefreshModels: () => Promise<boolean>;
+  isRefreshingModels: boolean;
   chats: ChatSession[];
   
   // Chat view props
@@ -74,6 +76,8 @@ export const AppContent: React.FC<AppContentProps> = ({
   settings,
   availableModels,
   availableModelOptions,
+  onRefreshModels,
+  isRefreshingModels,
   chats,
   isLoading,
   onCancelGeneration,
@@ -129,6 +133,8 @@ export const AppContent: React.FC<AppContentProps> = ({
             currentModelRouteId: settings.lastSelectedModelRouteId,
             availableModels,
             availableModelOptions,
+            onRefreshModels,
+            isRefreshingModels,
             onSetCurrentModel,
             onSetModelForActiveChat,
           }}

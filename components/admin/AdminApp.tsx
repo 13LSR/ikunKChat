@@ -50,8 +50,6 @@ const AdminApp: React.FC = () => {
 
   return (
     <main className="admin-login-shell">
-      <div className="admin-login-glow admin-login-glow-one" />
-      <div className="admin-login-glow admin-login-glow-two" />
       <section className="admin-login-card">
         <div className="admin-brand-mark">
           <Icon icon="chip" className="admin-brand-icon" />

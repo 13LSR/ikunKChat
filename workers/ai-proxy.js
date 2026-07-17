@@ -1,20 +1,43 @@
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' };
 const routeKeyPositions = new Map();
+const rateLimitBuckets = new Map();
+let lastRateLimitCleanupAt = 0;
+let lastAnalyticsCleanupAt = 0;
+
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX_REQUESTS = 20;
+const ANALYTICS_RETENTION_DAYS = 90;
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://hjm.331106.xyz',
+  'https://yx-hjm.331106.xyz',
+  'https://eo-hjm.331106.xyz',
+];
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') {
-      return withCors(new Response(null, { status: 204 }), request);
+      const origin = request.headers.get('Origin');
+      if (origin && !isAllowedOrigin(origin, env)) {
+        return new Response(null, { status: 403 });
+      }
+      return withCors(new Response(null, { status: 204 }), request, env);
     }
 
     try {
+      const origin = request.headers.get('Origin');
+      if (origin && !isAllowedOrigin(origin, env)) {
+        return json({ error: { message: 'Origin is not allowed.' } }, request, 403, env);
+      }
+
       if (url.pathname === '/auth/status' && request.method === 'GET') {
-        return json({ enabled: Boolean(env.ACCESS_PASSWORD) }, request);
+        return json({ enabled: Boolean(env.ACCESS_PASSWORD) }, request, 200, env);
       }
 
       if (url.pathname === '/auth/verify' && request.method === 'POST') {
+        const limited = enforceRateLimit(request, env, 'auth');
+        if (limited) return limited;
         return handleAuthVerify(request, env);
       }
 
@@ -22,10 +45,12 @@ export default {
         return json({
           enabled: Boolean(env.ADMIN_PASSWORD),
           analyticsEnabled: Boolean(env.ANALYTICS_DB),
-        }, request);
+        }, request, 200, env);
       }
 
       if (url.pathname === '/admin/auth' && request.method === 'POST') {
+        const limited = enforceRateLimit(request, env, 'admin-auth');
+        if (limited) return limited;
         return handleAdminAuth(request, env);
       }
 
@@ -38,52 +63,64 @@ export default {
       if (url.pathname === '/v1/models' && request.method === 'GET') {
         const auth = await requireAuth(request, env);
         if (auth) return auth;
-        return json({ object: 'list', data: listModels(env) }, request);
+        const limited = enforceRateLimit(request, env, 'models');
+        if (limited) return limited;
+        return json({ object: 'list', data: listModels(env) }, request, 200, env);
       }
 
       if (url.pathname === '/v1/chat/completions' && request.method === 'POST') {
         const auth = await requireAuth(request, env);
         if (auth) return auth;
+        const limited = enforceRateLimit(request, env, 'chat');
+        if (limited) return limited;
         return handleChatCompletions(request, env, ctx);
       }
 
-      return json({ error: { message: 'Not found' } }, request, 404);
+      return json({ error: { message: 'Not found' } }, request, 404, env);
     } catch (error) {
-      return json({ error: { message: error.message || 'Worker proxy error' } }, request, 500);
+      return json({ error: { message: error.message || 'Worker proxy error' } }, request, 500, env);
     }
+  },
+  async scheduled(_controller, env, ctx) {
+    const cleanup = cleanupAnalytics(env, true);
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(cleanup);
+      return;
+    }
+    await cleanup;
   },
 };
 
 async function handleAuthVerify(request, env) {
   if (!env.ACCESS_PASSWORD) {
-    return json({ token: await createToken(env, false, undefined, 'user'), expiresAt: Date.now() + 12 * 60 * 60 * 1000 }, request);
+    return json({ error: { message: 'Access password is not configured.' } }, request, 503, env);
   }
 
   const body = await request.json().catch(() => ({}));
   if (body.password !== env.ACCESS_PASSWORD) {
-    return json({ error: { message: 'Invalid password' } }, request, 401);
+    return json({ error: { message: 'Invalid password' } }, request, 401, env);
   }
 
   const rememberMe = Boolean(body.rememberMe);
   const ttlMs = rememberMe ? 30 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000;
   const expiresAt = Date.now() + ttlMs;
-  return json({ token: await createToken(env, rememberMe, expiresAt, 'user'), expiresAt }, request);
+  return json({ token: await createToken(env, rememberMe, expiresAt, 'user'), expiresAt }, request, 200, env);
 }
 
 async function handleAdminAuth(request, env) {
   if (!env.ADMIN_PASSWORD) {
-    return json({ error: { message: 'Admin password is not configured.' } }, request, 503);
+    return json({ error: { message: 'Admin password is not configured.' } }, request, 503, env);
   }
 
   const body = await request.json().catch(() => ({}));
   if (body.password !== env.ADMIN_PASSWORD) {
-    return json({ error: { message: 'Invalid admin password' } }, request, 401);
+    return json({ error: { message: 'Invalid admin password' } }, request, 401, env);
   }
 
   const rememberMe = Boolean(body.rememberMe);
   const ttlMs = rememberMe ? 7 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000;
   const expiresAt = Date.now() + ttlMs;
-  return json({ token: await createToken(env, rememberMe, expiresAt, 'admin'), expiresAt }, request);
+  return json({ token: await createToken(env, rememberMe, expiresAt, 'admin'), expiresAt }, request, 200, env);
 }
 
 async function handleChatCompletions(request, env, ctx) {
@@ -92,7 +129,7 @@ async function handleChatCompletions(request, env, ctx) {
 
   if (!route) {
     const routeHint = body.kchat?.routeId ? ` on route ${body.kchat.routeId}` : '';
-    return json({ error: { message: `No upstream route configured for model: ${body.model}${routeHint}` } }, request, 400);
+    return json({ error: { message: `No upstream route configured for model: ${body.model}${routeHint}` } }, request, 400, env);
   }
 
   const requestId = crypto.randomUUID();
@@ -104,10 +141,10 @@ async function handleChatCompletions(request, env, ctx) {
   });
 
   if (route.provider === 'gemini') {
-    return proxyGeminiChat(body, route, request, recordAttempt);
+    return proxyGeminiChat(body, route, request, recordAttempt, env);
   }
 
-  return proxyOpenAIChat(body, route, request, recordAttempt);
+  return proxyOpenAIChat(body, route, request, recordAttempt, env);
 }
 
 function listModels(env) {
@@ -119,6 +156,84 @@ function listModels(env) {
       channel_name: route.name || route.id || route.provider || 'worker-proxy',
     }))
   );
+}
+
+function getAnalyticsConfiguration(env) {
+  const rawRoutes = getRoutes(env);
+  const routeIds = new Map();
+  const modelRoutes = new Map();
+  const globalWarnings = [];
+  const routes = rawRoutes.map((route, index) => {
+    const routeId = String(route.id || route.provider || `route-${index + 1}`);
+    const routeName = String(route.name || route.id || route.provider || `Route ${index + 1}`);
+    const issues = [];
+
+    if (routeIds.has(routeId)) {
+      issues.push('routeId 与其他渠道重复');
+      globalWarnings.push(`渠道 ${routeName} 的 routeId 与 ${routeIds.get(routeId)} 重复`);
+    } else {
+      routeIds.set(routeId, routeName);
+    }
+
+    if (route.apiKeys.length === 0) {
+      issues.push('未配置 API Key');
+      globalWarnings.push(`渠道 ${routeName} 未配置 API Key`);
+    }
+
+    if (route.models.length === 0) {
+      issues.push('未配置模型');
+      globalWarnings.push(`渠道 ${routeName} 未配置模型`);
+    }
+
+    if (route.provider !== 'gemini' && !route.baseUrl) {
+      issues.push('缺少 baseUrl');
+      globalWarnings.push(`渠道 ${routeName} 缺少 baseUrl`);
+    } else if (route.baseUrl) {
+      try {
+        const parsedBaseUrl = new URL(route.baseUrl);
+        if (!['http:', 'https:'].includes(parsedBaseUrl.protocol)) {
+          issues.push('baseUrl 协议异常');
+          globalWarnings.push(`渠道 ${routeName} 的 baseUrl 协议异常`);
+        }
+      } catch {
+        issues.push('baseUrl 格式异常');
+        globalWarnings.push(`渠道 ${routeName} 的 baseUrl 格式异常`);
+      }
+    }
+
+    for (const model of route.models) {
+      const modelId = String(model);
+      const previousRoute = modelRoutes.get(modelId);
+      if (previousRoute && previousRoute !== routeName) {
+        globalWarnings.push(`模型 ${modelId} 同时配置在 ${previousRoute} 与 ${routeName}`);
+      } else {
+        modelRoutes.set(modelId, routeName);
+      }
+    }
+
+    return {
+      routeId,
+      routeName,
+      provider: String(route.provider || 'openai'),
+      modelCount: route.models.length,
+      models: route.models.map((model) => String(model)),
+      keyCount: route.apiKeys.length,
+      keys: route.apiKeys.map((apiKey) => ({
+        id: apiKey.id,
+        hint: apiKey.hint,
+      })),
+      issues,
+    };
+  });
+
+  return {
+    routeCount: routes.length,
+    modelCount: routes.reduce((total, route) => total + route.modelCount, 0),
+    keyCount: routes.reduce((total, route) => total + route.keyCount, 0),
+    warningCount: globalWarnings.length,
+    warnings: [...new Set(globalWarnings)],
+    routes,
+  };
 }
 
 function getRoutes(env) {
@@ -193,7 +308,7 @@ function findRouteByModel(env, model, routeId) {
   return routes.find((route) => route.models.includes(model));
 }
 
-async function proxyOpenAIChat(body, route, request, recordAttempt) {
+async function proxyOpenAIChat(body, route, request, recordAttempt, env) {
   const endpoint = getOpenAICompatibleChatEndpoint(route);
   const payload = JSON.stringify(prepareOpenAICompatibleBody(body, route));
   const upstream = await fetchWithKeyRotation(route, (apiKey) => fetch(endpoint, {
@@ -213,7 +328,7 @@ async function proxyOpenAIChat(body, route, request, recordAttempt) {
       'Content-Type': upstream.headers.get('Content-Type') || 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-store',
     },
-  }), request);
+  }), request, env);
 }
 
 function getOpenAICompatibleChatEndpoint(route) {
@@ -263,7 +378,7 @@ function compactObject(value) {
   );
 }
 
-async function proxyGeminiChat(body, route, request, recordAttempt) {
+async function proxyGeminiChat(body, route, request, recordAttempt, env) {
   const geminiBody = openAIToGemini(body);
   const endpoint = `${route.baseUrl || 'https://generativelanguage.googleapis.com'}/v1beta/models/${encodeURIComponent(body.model)}:streamGenerateContent?alt=sse`;
 
@@ -278,7 +393,7 @@ async function proxyGeminiChat(body, route, request, recordAttempt) {
 
   if (!upstream.ok) {
     const message = await upstream.text();
-    return json({ error: { message } }, request, upstream.status);
+    return json({ error: { message } }, request, upstream.status, env);
   }
 
   let buffer = '';
@@ -344,7 +459,7 @@ async function proxyGeminiChat(body, route, request, recordAttempt) {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-store',
     },
-  }), request);
+  }), request, env);
 }
 
 async function fetchWithKeyRotation(route, requestFactory, recordAttempt) {
@@ -436,6 +551,53 @@ function shouldRetryWithNextKey(status) {
   return status === 401 || status === 403 || status === 408 || status === 429 || status >= 500;
 }
 
+function enforceRateLimit(request, env, scope) {
+  const now = Date.now();
+  const ip = request.headers.get('CF-Connecting-IP')
+    || request.headers.get('X-Forwarded-For')?.split(',')[0].trim()
+    || 'unknown-ip';
+  const identity = `ip:${ip}`;
+  const key = `${scope}:${identity}`;
+  const current = rateLimitBuckets.get(key);
+
+  if (!current || now - current.windowStartedAt >= RATE_LIMIT_WINDOW_MS) {
+    rateLimitBuckets.set(key, { windowStartedAt: now, count: 1 });
+    cleanupRateLimitBuckets(now);
+    return null;
+  }
+
+  if (current.count >= RATE_LIMIT_MAX_REQUESTS) {
+    const retryAfterSeconds = Math.max(1, Math.ceil(
+      (RATE_LIMIT_WINDOW_MS - (now - current.windowStartedAt)) / 1000
+    ));
+    return json({
+      error: {
+        message: 'Too many requests. Please try again later.',
+        code: 'RATE_LIMITED',
+        retryAfterSeconds,
+      },
+    }, request, 429, env, {
+      'Retry-After': String(retryAfterSeconds),
+      'X-RateLimit-Limit': String(RATE_LIMIT_MAX_REQUESTS),
+      'X-RateLimit-Remaining': '0',
+    });
+  }
+
+  current.count += 1;
+  cleanupRateLimitBuckets(now);
+  return null;
+}
+
+function cleanupRateLimitBuckets(now) {
+  if (now - lastRateLimitCleanupAt < RATE_LIMIT_WINDOW_MS) return;
+  lastRateLimitCleanupAt = now;
+  for (const [key, bucket] of rateLimitBuckets) {
+    if (now - bucket.windowStartedAt >= RATE_LIMIT_WINDOW_MS) {
+      rateLimitBuckets.delete(key);
+    }
+  }
+}
+
 function createAttemptRecorder(env, ctx, base) {
   return (details) => {
     const task = recordAnalyticsAttempt(env, base, details).catch(() => {});
@@ -485,11 +647,35 @@ async function recordAnalyticsAttempt(env, base, details) {
     details.finalAttempt ? 1 : 0,
     String(details.error || '').slice(0, 500)
   ).run();
+
+  scheduleAnalyticsCleanup(env);
+}
+
+function scheduleAnalyticsCleanup(env) {
+  void cleanupAnalytics(env);
+}
+
+function cleanupAnalytics(env, force = false) {
+  if (!env.ANALYTICS_DB) return Promise.resolve();
+  const now = Date.now();
+  if (!force && now - lastAnalyticsCleanupAt < 60 * 60 * 1000) {
+    return Promise.resolve();
+  }
+  lastAnalyticsCleanupAt = now;
+
+  return env.ANALYTICS_DB.prepare(`
+    DELETE FROM ai_usage_logs
+    WHERE created_at < datetime('now', ?)
+  `).bind(`-${ANALYTICS_RETENTION_DAYS} days`).run().catch(() => {});
+}
+
+function isMissingAnalyticsTableError(error) {
+  return /no such table:\s*ai_usage_logs/i.test(String(error?.message || error || ''));
 }
 
 async function handleAdminAnalytics(request, env) {
   if (!env.ANALYTICS_DB) {
-    return json({ error: { message: 'Analytics database is not configured.' } }, request, 503);
+    return json({ error: { message: 'Analytics database is not configured.' } }, request, 503, env);
   }
 
   const url = new URL(request.url);
@@ -500,8 +686,9 @@ async function handleAdminAnalytics(request, env) {
     ? "substr(created_at, 1, 13) || ':00:00Z'"
     : "substr(created_at, 1, 10) || 'T00:00:00Z'";
 
-  const [summaryResult, attemptResult, timelineResult, channelResult, keyResult, recentResult] = await env.ANALYTICS_DB.batch([
-    env.ANALYTICS_DB.prepare(`
+  try {
+    const [summaryResult, attemptResult, timelineResult, channelResult, keyResult, recentResult] = await env.ANALYTICS_DB.batch([
+      env.ANALYTICS_DB.prepare(`
       SELECT
         COUNT(*) AS requests,
         COALESCE(SUM(success), 0) AS successes,
@@ -509,26 +696,28 @@ async function handleAdminAnalytics(request, env) {
         COALESCE(ROUND(AVG(request_duration_ms)), 0) AS avg_latency_ms
       FROM ai_usage_logs
       WHERE created_at >= ? AND final_attempt = 1
-    `).bind(since),
-    env.ANALYTICS_DB.prepare(`
+      `).bind(since),
+      env.ANALYTICS_DB.prepare(`
       SELECT
         COUNT(*) AS attempts,
         COALESCE(SUM(CASE WHEN final_attempt = 0 THEN 1 ELSE 0 END), 0) AS retries
       FROM ai_usage_logs
       WHERE created_at >= ?
-    `).bind(since),
-    env.ANALYTICS_DB.prepare(`
+      `).bind(since),
+      env.ANALYTICS_DB.prepare(`
       SELECT
         ${bucketExpression} AS bucket,
-        COUNT(*) AS requests,
-        COALESCE(SUM(success), 0) AS successes,
-        COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS failures
+        COALESCE(SUM(CASE WHEN final_attempt = 1 THEN 1 ELSE 0 END), 0) AS requests,
+        COALESCE(SUM(CASE WHEN final_attempt = 1 AND success = 1 THEN 1 ELSE 0 END), 0) AS successes,
+        COALESCE(SUM(CASE WHEN final_attempt = 1 AND success = 0 THEN 1 ELSE 0 END), 0) AS failures,
+      COALESCE(SUM(CASE WHEN final_attempt = 0 THEN 1 ELSE 0 END), 0) AS retries,
+      COUNT(*) AS attempts
       FROM ai_usage_logs
-      WHERE created_at >= ? AND final_attempt = 1
+      WHERE created_at >= ?
       GROUP BY bucket
       ORDER BY bucket ASC
-    `).bind(since),
-    env.ANALYTICS_DB.prepare(`
+      `).bind(since),
+      env.ANALYTICS_DB.prepare(`
       SELECT
         route_id AS routeId,
         route_name AS routeName,
@@ -541,8 +730,8 @@ async function handleAdminAnalytics(request, env) {
       WHERE created_at >= ? AND final_attempt = 1
       GROUP BY route_id, route_name, provider
       ORDER BY requests DESC
-    `).bind(since),
-    env.ANALYTICS_DB.prepare(`
+      `).bind(since),
+      env.ANALYTICS_DB.prepare(`
       SELECT
         route_id AS routeId,
         route_name AS routeName,
@@ -556,8 +745,8 @@ async function handleAdminAnalytics(request, env) {
       WHERE created_at >= ?
       GROUP BY route_id, route_name, key_id, key_hint
       ORDER BY attempts DESC, route_name ASC, key_id ASC
-    `).bind(since),
-    env.ANALYTICS_DB.prepare(`
+      `).bind(since),
+      env.ANALYTICS_DB.prepare(`
       SELECT
         id,
         request_id AS requestId,
@@ -580,35 +769,79 @@ async function handleAdminAnalytics(request, env) {
       WHERE created_at >= ?
       ORDER BY id DESC
       LIMIT ?
-    `).bind(since, limit),
-  ]);
+      `).bind(since, limit),
+    ]);
 
-  const summaryRow = summaryResult.results?.[0] || {};
-  const attemptRow = attemptResult.results?.[0] || {};
-  const requests = Number(summaryRow.requests || 0);
-  const successes = Number(summaryRow.successes || 0);
+    const summaryRow = summaryResult.results?.[0] || {};
+    const attemptRow = attemptResult.results?.[0] || {};
+    const requests = Number(summaryRow.requests || 0);
+    const successes = Number(summaryRow.successes || 0);
 
-  return json({
-    range: range.id,
-    generatedAt: new Date().toISOString(),
-    summary: {
-      requests,
-      attempts: Number(attemptRow.attempts || 0),
-      successes,
-      failures: Number(summaryRow.failures || 0),
-      retries: Number(attemptRow.retries || 0),
-      successRate: requests > 0 ? Math.round((successes / requests) * 1000) / 10 : 0,
-      avgLatencyMs: Number(summaryRow.avg_latency_ms || 0),
-    },
-    timeline: timelineResult.results || [],
-    channels: channelResult.results || [],
-    keys: keyResult.results || [],
-    recent: (recentResult.results || []).map((item) => ({
-      ...item,
-      success: Boolean(item.success),
-      finalAttempt: Boolean(item.finalAttempt),
-    })),
-  }, request);
+    return json({
+      range: range.id,
+      generatedAt: new Date().toISOString(),
+      configuration: getAnalyticsConfiguration(env),
+      summary: {
+        requests,
+        attempts: Number(attemptRow.attempts || 0),
+        successes,
+        failures: Number(summaryRow.failures || 0),
+        retries: Number(attemptRow.retries || 0),
+        successRate: requests > 0 ? Math.round((successes / requests) * 1000) / 10 : 0,
+        avgLatencyMs: Number(summaryRow.avg_latency_ms || 0),
+      },
+      timeline: (timelineResult.results || []).map((item) => {
+        const requestsInBucket = Number(item.requests || 0);
+        const attemptsInBucket = Number(item.attempts || 0);
+        const failuresInBucket = Number(item.failures || 0);
+        const retriesInBucket = Number(item.retries || 0);
+        return {
+          ...item,
+          requests: requestsInBucket,
+          successes: Number(item.successes || 0),
+          failures: failuresInBucket,
+          retries: retriesInBucket,
+          attempts: attemptsInBucket,
+          failureRate: requestsInBucket > 0
+            ? Math.round((failuresInBucket / requestsInBucket) * 1000) / 10
+            : 0,
+          retryRate: attemptsInBucket > 0
+            ? Math.round((retriesInBucket / attemptsInBucket) * 1000) / 10
+            : 0,
+        };
+      }),
+      channels: channelResult.results || [],
+      keys: keyResult.results || [],
+      recent: (recentResult.results || []).map((item) => ({
+        ...item,
+        success: Boolean(item.success),
+        finalAttempt: Boolean(item.finalAttempt),
+      })),
+    }, request, 200, env);
+  } catch (error) {
+    if (isMissingAnalyticsTableError(error)) {
+      return json({
+        range: range.id,
+        generatedAt: new Date().toISOString(),
+        configuration: getAnalyticsConfiguration(env),
+        summary: {
+          requests: 0,
+          attempts: 0,
+          successes: 0,
+          failures: 0,
+          retries: 0,
+          successRate: 0,
+          avgLatencyMs: 0,
+        },
+        timeline: [],
+        channels: [],
+        keys: [],
+        recent: [],
+        warning: 'Analytics table is not migrated yet.',
+      }, request, 200, env);
+    }
+    throw error;
+  }
 }
 
 function normalizeAnalyticsRange(value) {
@@ -697,30 +930,32 @@ function stripKChatFields(body) {
 }
 
 async function requireAuth(request, env) {
-  if (!env.ACCESS_PASSWORD) return null;
+  if (!env.ACCESS_PASSWORD) {
+    return json({ error: { message: 'Access password is not configured.' } }, request, 503, env);
+  }
 
   const authorization = request.headers.get('Authorization') || '';
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
   const valid = token ? await verifyToken(token, env, 'user') : false;
 
-  return valid ? null : json({ error: { message: 'Unauthorized' } }, request, 401);
+  return valid ? null : json({ error: { message: 'Unauthorized' } }, request, 401, env);
 }
 
 async function requireAdmin(request, env) {
   if (!env.ADMIN_PASSWORD) {
-    return json({ error: { message: 'Admin password is not configured.' } }, request, 503);
+    return json({ error: { message: 'Admin password is not configured.' } }, request, 503, env);
   }
 
   const authorization = request.headers.get('Authorization') || '';
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
   const valid = token ? await verifyToken(token, env, 'admin') : false;
 
-  return valid ? null : json({ error: { message: 'Admin authorization required' } }, request, 401);
+  return valid ? null : json({ error: { message: 'Admin authorization required' } }, request, 401, env);
 }
 
 async function createToken(env, rememberMe, expiresAt = Date.now() + 12 * 60 * 60 * 1000, scope = 'user') {
   const payload = base64UrlEncode(JSON.stringify({ exp: expiresAt, rememberMe, scope }));
-  const signature = await sign(payload, getTokenSecret(env));
+  const signature = await sign(payload, getTokenSecret(env, scope));
   return `${payload}.${signature}`;
 }
 
@@ -728,7 +963,7 @@ async function verifyToken(token, env, expectedScope = 'user') {
   const [payload, signature] = token.split('.');
   if (!payload || !signature) return false;
 
-  const expected = await sign(payload, getTokenSecret(env));
+  const expected = await sign(payload, getTokenSecret(env, expectedScope));
   if (signature !== expected) return false;
 
   try {
@@ -740,8 +975,12 @@ async function verifyToken(token, env, expectedScope = 'user') {
   }
 }
 
-function getTokenSecret(env) {
-  return env.AUTH_SECRET || env.ADMIN_AUTH_SECRET || env.ACCESS_PASSWORD || env.ADMIN_PASSWORD || 'dev-secret';
+function getTokenSecret(env, scope = 'user') {
+  if (scope === 'admin') {
+    return env.ADMIN_AUTH_SECRET || env.AUTH_SECRET || env.ADMIN_PASSWORD || env.ACCESS_PASSWORD || 'dev-secret';
+  }
+
+  return env.AUTH_SECRET || env.ACCESS_PASSWORD || env.ADMIN_AUTH_SECRET || env.ADMIN_PASSWORD || 'dev-secret';
 }
 
 async function sign(value, secret) {
@@ -765,17 +1004,38 @@ function base64UrlDecode(value) {
   return atob(padded);
 }
 
-function json(data, request, status = 200) {
+function json(data, request, status = 200, env = {}, extraHeaders = {}) {
   return withCors(new Response(JSON.stringify(data), {
     status,
-    headers: JSON_HEADERS,
-  }), request);
+    headers: { ...JSON_HEADERS, ...extraHeaders },
+  }), request, env);
 }
 
-function withCors(response, request) {
+function getAllowedOrigins(env) {
+  const configured = String(env.CORS_ALLOWED_ORIGINS || '')
+    .split(/[,\n]/)
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return new Set([
+    ...DEFAULT_ALLOWED_ORIGINS,
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:4173',
+    'http://127.0.0.1:4173',
+    ...configured,
+  ]);
+}
+
+function isAllowedOrigin(origin, env) {
+  return getAllowedOrigins(env).has(origin);
+}
+
+function withCors(response, request, env = {}) {
   const headers = new Headers(response.headers);
-  const origin = request.headers.get('Origin') || '*';
-  headers.set('Access-Control-Allow-Origin', origin);
+  const origin = request.headers.get('Origin');
+  if (origin && isAllowedOrigin(origin, env)) {
+    headers.set('Access-Control-Allow-Origin', origin);
+  }
   headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   headers.set('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   headers.set('Vary', 'Origin');

@@ -144,6 +144,7 @@ npx wrangler deploy --config wrangler.ai-proxy.example.toml
 - `AI_ROUTES_JSON`：只有渠道、模型或 Key 变化时才需要更新。输入时只粘贴从 `[` 到 `]` 的 JSON，不要粘贴 `.dev.vars` 外层的变量名和引号。
 - `ACCESS_PASSWORD`、`AUTH_SECRET`：如果线上已有且内容不变，无需重新设置。
 - `wrangler deploy`：将当前 `workers/ai-proxy.js` 更新到同名的现有 Worker，不会重新创建 Pages 站点。
+- Worker 配置中的定时任务会每天 UTC 03:00 清理 D1 中超过 90 天的调用日志；修改 `workers/wrangler.ai-proxy.example.toml` 后重新执行 `wrangler deploy` 才会生效。
 
 如果尚未给线上 Worker 创建或绑定统计数据库，先按 [Cloudflare Worker API Proxy](docs/cloudflare-worker-proxy.md#analytics-database) 中的首次 D1 配置完成一次创建和绑定，再执行以上增量更新命令。
 

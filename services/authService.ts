@@ -175,8 +175,10 @@ class AuthService {
           this.setWorkerToken(data.token, data.expiresAt, rememberMe);
           return true;
         }
+        return false;
       } catch (error) {
         console.error('Failed to verify password with Worker proxy:', error);
+        return false;
       }
     }
 

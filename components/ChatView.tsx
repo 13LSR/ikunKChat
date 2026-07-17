@@ -29,6 +29,8 @@ interface ModelConfig {
   currentModelRouteId?: string;
   availableModels: string[];
   availableModelOptions: ModelOption[];
+  onRefreshModels: () => Promise<boolean>;
+  isRefreshingModels: boolean;
   onSetCurrentModel: (model: string, routeId?: string) => void;
   onSetModelForActiveChat: (model: string, routeId?: string) => void;
 }
@@ -75,19 +77,21 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragCounter = useRef(0);
   const [renderStartTime, setRenderStartTime] = useState<number>(0);
-  
-  // 分批渲染状态
-  const [visibleMessageCount, setVisibleMessageCount] = useState(15); // 初始显示15条
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const BATCH_SIZE = 15; // 每批加载15条消息
-  const scrollHeightBeforeLoad = useRef(0);
+  const VIRTUALIZATION_THRESHOLD = 40;
+  const VIRTUAL_OVERSCAN = 4;
+  const ESTIMATED_MESSAGE_HEIGHT = 180;
+  const [virtualRange, setVirtualRange] = useState({ start: 0, end: 0 });
+  const messageHeightsRef = useRef(new Map<string, number>());
+  const virtualUpdateFrameRef = useRef<number | null>(null);
   
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
 
   const scrollToBottom = useCallback(() => {
-    // 使用 setTimeout 确保在 DOM 更新后再滚动
     setTimeout(() => {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      }
       messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
     }, 0);
   }, []);
@@ -101,12 +105,16 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
     if (chatSession?.id !== prevChatIdRef.current) {
         setEditingMessageId(null);
         setChatInput('');
-        // 切换对话时，重置可见消息数量并滚动到底部
-        setVisibleMessageCount(BATCH_SIZE);
-        scrollToBottom(); // 1. 切换聊天时滚动
+        messageHeightsRef.current.clear();
+        const messageCount = chatSession?.messages.length || 0;
+        setVirtualRange({
+          start: Math.max(0, messageCount - VIRTUALIZATION_THRESHOLD),
+          end: messageCount,
+        });
+        scrollToBottom();
     }
     prevChatIdRef.current = chatSession?.id;
-  }, [chatSession, scrollToBottom]);
+  }, [chatSession?.id, chatSession?.messages.length, scrollToBottom]);
 
   // 3. AI 回复完成时滚动
   const prevIsLoading = useRef(isLoading);
@@ -159,7 +167,7 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
     if (renderStartTime > 0 && chatSession?.messages) {
       const totalRenderTime = performance.now() - renderStartTime;
       const messages = chatSession.messages || [];
-      const visibleMessages = messages.slice(Math.max(messages.length - visibleMessageCount, 0));
+      const visibleMessages = messages.slice(virtualRange.start, virtualRange.end);
       
       // 详细计算数学公式数量和解析时间
       const mathCount = visibleMessages.reduce((count, msg) => {
@@ -219,42 +227,126 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
       
       setRenderStartTime(0);
     }
-  }, [chatSession?.messages, visibleMessageCount, renderStartTime, performanceBreakdown]);
+  }, [chatSession?.messages, virtualRange, renderStartTime, performanceBreakdown]);
 
-  // 滚动检测：向上滚动加载更多历史消息
-  const handleScroll = useCallback(() => {
-    if (isLoadingMore || !scrollContainerRef.current || !chatSession?.messages) return;
+  const getMessageHeight = useCallback((message: Message) =>
+    messageHeightsRef.current.get(message.id) || ESTIMATED_MESSAGE_HEIGHT
+  , []);
 
-    const container = scrollContainerRef.current;
-    // 当滚动到顶部时加载更多
-    if (container.scrollTop < 100) {
-      const totalMessages = chatSession.messages.length;
-      if (visibleMessageCount < totalMessages) {
-        setIsLoadingMore(true);
-        // 保存当前滚动高度，用于后续恢复位置
-        scrollHeightBeforeLoad.current = container.scrollHeight;
-        setVisibleMessageCount(prev => Math.min(prev + BATCH_SIZE, totalMessages));
-      }
+  const getOffsetBefore = useCallback((messages: Message[], index: number) =>
+    messages.slice(0, index).reduce((total, message) => total + getMessageHeight(message), 0)
+  , [getMessageHeight]);
+
+  const findMessageIndexAtOffset = useCallback((messages: Message[], offset: number) => {
+    let accumulated = 0;
+    for (let index = 0; index < messages.length; index += 1) {
+      accumulated += getMessageHeight(messages[index]);
+      if (accumulated >= offset) return index;
     }
-  }, [isLoadingMore, chatSession?.messages, visibleMessageCount]);
+    return Math.max(messages.length - 1, 0);
+  }, [getMessageHeight]);
+
+  const updateVirtualRange = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const messages = chatSession?.messages || [];
+
+    if (!container || messages.length <= VIRTUALIZATION_THRESHOLD) {
+      setVirtualRange(previous => {
+        const next = { start: 0, end: messages.length };
+        return previous.start === next.start && previous.end === next.end ? previous : next;
+      });
+      return;
+    }
+
+    const scrollTop = container.scrollTop;
+    const viewportBottom = scrollTop + Math.max(container.clientHeight, ESTIMATED_MESSAGE_HEIGHT);
+    const firstVisibleIndex = findMessageIndexAtOffset(messages, scrollTop);
+    const start = Math.max(0, firstVisibleIndex - VIRTUAL_OVERSCAN);
+    let end = Math.min(messages.length, firstVisibleIndex + VIRTUAL_OVERSCAN + 1);
+    let renderedBottom = getOffsetBefore(messages, end);
+
+    while (end < messages.length && renderedBottom < viewportBottom + ESTIMATED_MESSAGE_HEIGHT * VIRTUAL_OVERSCAN) {
+      renderedBottom += getMessageHeight(messages[end]);
+      end += 1;
+    }
+
+    const editingIndex = editingMessageId
+      ? messages.findIndex(message => message.id === editingMessageId)
+      : -1;
+    const requiredIndices = [
+      ...(isLoading ? [messages.length - 1] : []),
+      ...(editingIndex >= 0 ? [editingIndex] : []),
+    ];
+    const nextRange = {
+      start: requiredIndices.length > 0
+        ? Math.min(start, ...requiredIndices)
+        : start,
+      end: requiredIndices.length > 0
+        ? Math.max(end, ...requiredIndices.map(index => index + 1))
+        : end,
+    };
+
+    setVirtualRange(previous =>
+      previous.start === nextRange.start && previous.end === nextRange.end
+        ? previous
+        : nextRange
+    );
+  }, [
+    chatSession?.messages,
+    editingMessageId,
+    findMessageIndexAtOffset,
+    getMessageHeight,
+    getOffsetBefore,
+    isLoading,
+  ]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [handleScroll]);
 
-  // 在加载更多消息后恢复滚动位置
-  React.useLayoutEffect(() => {
-    if (isLoadingMore && scrollContainerRef.current) {
-      const newScrollHeight = scrollContainerRef.current.scrollHeight;
-      const scrollOffset = newScrollHeight - scrollHeightBeforeLoad.current;
-      scrollContainerRef.current.scrollTop += scrollOffset;
-      setIsLoadingMore(false);
-    }
-  }, [visibleMessageCount, isLoadingMore]); // 依赖于消息数量变化
+    const handleScroll = () => {
+      if (virtualUpdateFrameRef.current !== null) return;
+      virtualUpdateFrameRef.current = requestAnimationFrame(() => {
+        virtualUpdateFrameRef.current = null;
+        updateVirtualRange();
+      });
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    updateVirtualRange();
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (virtualUpdateFrameRef.current !== null) {
+        cancelAnimationFrame(virtualUpdateFrameRef.current);
+        virtualUpdateFrameRef.current = null;
+      }
+    };
+  }, [updateVirtualRange]);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(entries => {
+      let changed = false;
+      entries.forEach(entry => {
+        const messageId = entry.target.getAttribute('data-message-id');
+        if (!messageId) return;
+        const nextHeight = Math.ceil(entry.contentRect.height);
+        const previousHeight = messageHeightsRef.current.get(messageId);
+        if (!previousHeight || Math.abs(previousHeight - nextHeight) > 1) {
+          messageHeightsRef.current.set(messageId, nextHeight);
+          changed = true;
+        }
+      });
+      if (changed) updateVirtualRange();
+    });
+
+    const nodes = scrollContainerRef.current?.querySelectorAll<HTMLElement>('[data-message-id]') || [];
+    nodes.forEach(node => observer.observe(node));
+
+    return () => observer.disconnect();
+  }, [virtualRange, updateVirtualRange]);
 
   // 添加快捷性能分析功能
   useEffect(() => {
@@ -343,6 +435,23 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
     }
   };
 
+  const messages = chatSession?.messages || [];
+  const renderedMessages = useMemo(
+    () => messages.slice(virtualRange.start, virtualRange.end),
+    [messages, virtualRange]
+  );
+  const topSpacerHeight = messages.length > VIRTUALIZATION_THRESHOLD
+    ? getOffsetBefore(messages, virtualRange.start)
+    : 0;
+  const renderedHeight = renderedMessages.reduce(
+    (total, message) => total + getMessageHeight(message),
+    0
+  );
+  const totalMessageHeight = messages.length > VIRTUALIZATION_THRESHOLD
+    ? getOffsetBefore(messages, messages.length)
+    : renderedHeight;
+  const bottomSpacerHeight = Math.max(totalMessageHeight - topSpacerHeight - renderedHeight, 0);
+
   return (
     <ChatContextProvider value={{
       settings,
@@ -366,6 +475,8 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
           onNewChat={chatManagement.onNewChat}
           availableModels={props.modelConfig.availableModels}
           availableModelOptions={props.modelConfig.availableModelOptions}
+          onRefreshModels={props.modelConfig.onRefreshModels}
+          isRefreshingModels={props.modelConfig.isRefreshingModels}
           onSetModelForActiveChat={props.modelConfig.onSetModelForActiveChat}
           currentModel={props.modelConfig.currentModel}
           currentModelRouteId={props.modelConfig.currentModelRouteId}
@@ -378,18 +489,16 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
             <InternalView active={!!chatSession}>
               <div className="flex-grow overflow-y-auto pt-1 pb-5" ref={scrollContainerRef}>
                 <div className={`w-full px-6 transition-all duration-300 ${props.uiInteractions.isSidebarCollapsed ? 'max-w-6xl mx-auto' : 'max-w-[672px] mx-auto'}`}>
-                  {/* 分批渲染消息 */}
-                  {/* 渲染可见消息 */}
-                  {useMemo(() => {
-                    const messages = chatSession?.messages || [];
-                    const visibleMessages = messages.slice(Math.max(messages.length - visibleMessageCount, 0));
-                    return visibleMessages.map((msg, index) => (
+                  <div style={{ height: topSpacerHeight }} aria-hidden="true" />
+                  {renderedMessages.map((msg, index) => {
+                    const messageIndex = virtualRange.start + index;
+                    return (
+                      <div key={msg.id} data-message-id={msg.id}>
                       <MessageBubble
-                        key={msg.id}
                         message={msg}
-                        index={index} // 这个 index 现在是相对于 visibleMessages 的
+                        index={messageIndex}
                         persona={activePersona}
-                        isLastMessageLoading={isLoading && index === visibleMessages.length - 1 && msg.id === messages[messages.length - 1].id}
+                        isLastMessageLoading={isLoading && messageIndex === messages.length - 1}
                         isEditing={editingMessageId === msg.id}
                         onEditRequest={() => messageActions.onEditMessage(msg)}
                         onCancelEdit={handleCancelEdit}
@@ -397,11 +506,13 @@ export const ChatView: React.FC<ChatViewProps> = (props) => {
                         onDelete={messageActions.onDeleteMessage}
                         onRegenerate={messageActions.onRegenerate}
                         onCopy={handleCopy}
-                        isInVirtualView={false}
-                        isBatchRendered={index < BATCH_SIZE}
+                        isInVirtualView={messages.length > VIRTUALIZATION_THRESHOLD}
+                        isBatchRendered={messages.length <= VIRTUALIZATION_THRESHOLD || messageIndex >= virtualRange.start}
                       />
-                    ));
-                  }, [chatSession?.messages, visibleMessageCount, isLoading, editingMessageId, activePersona, messageActions, handleCancelEdit, handleSaveEdit, handleCopy])}
+                      </div>
+                    );
+                  })}
+                  <div style={{ height: bottomSpacerHeight }} aria-hidden="true" />
                   
                   <div ref={messagesEndRef} />
                 </div>

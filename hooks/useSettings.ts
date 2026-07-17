@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Settings } from '../types';
 import { useLocalization } from '../contexts/LocalizationContext';
 import { createLLMService } from '../services/llm/llmFactory';
@@ -109,6 +109,10 @@ export const useSettings = () => {
   const [availableModelOptions, setAvailableModelOptions] = useState<ModelOption[]>([]);
   const [isStorageLoaded, setIsStorageLoaded] = useState(false);
   const [authVersion, setAuthVersion] = useState(0);
+  const [isRefreshingModels, setIsRefreshingModels] = useState(false);
+  const modelRequestIdRef = useRef(0);
+  const lastModelsLoadedAtRef = useRef(0);
+  const refreshResolversRef = useRef<Array<(success: boolean) => void>>([]);
   const { setLanguage } = useLocalization();
 
   // 环境变量配置（不存到 localStorage）
@@ -179,6 +183,8 @@ export const useSettings = () => {
 
   useEffect(() => {
     if (!isStorageLoaded) return;
+    const requestId = ++modelRequestIdRef.current;
+    lastModelsLoadedAtRef.current = Date.now();
 
     const customModelsList = settings.customModels
       ? settings.customModels.split(/[\n,]+/).map(m => m.trim()).filter(Boolean)
@@ -215,10 +221,7 @@ export const useSettings = () => {
           : mergedOptions;
       });
     } else {
-      setAvailableModelOptions(currentModels => {
-        if (currentModels.length === 0) return currentModels;
-        return [];
-      });
+      setAvailableModelOptions(currentModels => currentModels);
     }
 
     // 获取实际使用的 API Key 和 Base URL
@@ -239,6 +242,7 @@ export const useSettings = () => {
     }
 
     const applyModels = (fetchedModels: ModelOption[]) => {
+      if (requestId !== modelRequestIdRef.current) return;
       const allModelOptions = mergeModelOptions([...fetchedModels, ...customModelOptions]);
       const allModels = [...new Set(allModelOptions.map(option => option.id))];
 
@@ -269,20 +273,44 @@ export const useSettings = () => {
       });
     };
 
+    const finishRefresh = (success: boolean) => {
+      if (requestId !== modelRequestIdRef.current) return;
+      setIsRefreshingModels(false);
+      const resolvers = refreshResolversRef.current.splice(0);
+      resolvers.forEach(resolve => resolve(success));
+    };
+
     if (!actualApiKey) {
       applyModels([]);
+      finishRefresh(customModelsList.length > 0);
       return;
     }
 
     const llmService = createLLMService(settings);
     llmService.getAvailableModels(actualApiKey, actualApiBaseUrl)
-      .then(applyModels)
-      .catch(() => applyModels([]));
-  }, [isStorageLoaded, settings.apiKey, settings.apiBaseUrl, settings.llmProvider, settings.useCustomApi, settings.customModels, authVersion]);
+      .then(models => {
+        applyModels(models);
+        finishRefresh(models.length > 0 || customModelsList.length > 0);
+      })
+      .catch(() => {
+        applyModels([]);
+        finishRefresh(customModelsList.length > 0);
+      });
+  }, [isStorageLoaded, settings, authVersion]);
+
+  const refreshModels = useCallback(() => new Promise<boolean>((resolve) => {
+    refreshResolversRef.current.push(resolve);
+    setIsRefreshingModels(true);
+    setAuthVersion(version => version + 1);
+  }), []);
 
   useEffect(() => {
     const handleAuthChanged = () => setAuthVersion(version => version + 1);
-    const handleWindowFocus = () => setAuthVersion(version => version + 1);
+    const handleWindowFocus = () => {
+      if (Date.now() - lastModelsLoadedAtRef.current >= 60 * 1000) {
+        setAuthVersion(version => version + 1);
+      }
+    };
     window.addEventListener('kchat-auth-changed', handleAuthChanged);
     window.addEventListener('focus', handleWindowFocus);
     return () => {
@@ -293,7 +321,15 @@ export const useSettings = () => {
 
   const availableModels = availableModelOptions.map(option => option.id);
 
-  return { settings, setSettings, availableModels, availableModelOptions, isStorageLoaded };
+  return {
+    settings,
+    setSettings,
+    availableModels,
+    availableModelOptions,
+    isStorageLoaded,
+    refreshModels,
+    isRefreshingModels,
+  };
 };
 
 // 导出环境变量配置状态，供设置界面使用

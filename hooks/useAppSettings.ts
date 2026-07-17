@@ -11,6 +11,8 @@ interface UseAppSettingsReturn {
   availableModels: string[];
   availableModelOptions: ModelOption[];
   isStorageLoaded: boolean;
+  refreshModels: () => Promise<boolean>;
+  isRefreshingModels: boolean;
   
   // 主题相关
   themeLoaded: boolean;
@@ -27,7 +29,15 @@ interface UseAppSettingsReturn {
  * 职责：设置状态管理、主题应用、默认人格验证
  */
 export const useAppSettings = (): UseAppSettingsReturn => {
-  const { settings, setSettings, availableModels, availableModelOptions, isStorageLoaded } = useSettings();
+  const {
+    settings,
+    setSettings,
+    availableModels,
+    availableModelOptions,
+    isStorageLoaded,
+    refreshModels,
+    isRefreshingModels,
+  } = useSettings();
   
   // 应用主题
   useTheme(settings, isStorageLoaded);
@@ -64,6 +74,8 @@ export const useAppSettings = (): UseAppSettingsReturn => {
     availableModels,
     availableModelOptions,
     isStorageLoaded,
+    refreshModels,
+    isRefreshingModels,
     themeLoaded: isStorageLoaded,
     handleSettingsChange,
     validateAndUpdateDefaultPersona

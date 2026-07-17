@@ -10,6 +10,8 @@ interface ChatHeaderProps {
     onNewChat: () => void;
     availableModels: string[];
     availableModelOptions: ModelOption[];
+    onRefreshModels: () => Promise<boolean>;
+    isRefreshingModels: boolean;
     onSetModelForActiveChat: (model: string, routeId?: string) => void;
     currentModel: string;
     currentModelRouteId?: string;
@@ -18,7 +20,7 @@ interface ChatHeaderProps {
     onToggleMobileSidebar: () => void;
 }
 
-export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, availableModels, availableModelOptions, onSetModelForActiveChat, currentModel, currentModelRouteId, isSidebarCollapsed, onToggleSidebar, onToggleMobileSidebar }) => {
+export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, availableModels, availableModelOptions, onRefreshModels, isRefreshingModels, onSetModelForActiveChat, currentModel, currentModelRouteId, isSidebarCollapsed, onToggleSidebar, onToggleMobileSidebar }) => {
     const { t } = useLocalization();
     const [isMobileModelSelectorOpen, setIsMobileModelSelectorOpen] = useState(false);
     const mobileModelSelectorRef = useRef<HTMLDivElement>(null);
@@ -136,12 +138,34 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ chatSession, onNewChat, 
                         isHeader={true}
                     />
                 </div>
+                <button
+                    type="button"
+                    onClick={() => void onRefreshModels()}
+                    className="p-1.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-50"
+                    disabled={isRefreshingModels}
+                    aria-label="刷新模型"
+                    data-tooltip="刷新模型"
+                    data-tooltip-placement="left"
+                >
+                    <Icon icon="regenerate" className={`w-5 h-5 ${isRefreshingModels ? 'animate-spin' : ''}`} />
+                </button>
             </div>
             
             {/* 移动端按钮 - 始终显示 */}
             <div className="md:hidden flex items-center gap-2 ml-auto">
                 <button onClick={() => onNewChat()} className="p-1.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10" data-tooltip={t('newChat')} data-tooltip-placement="left">
                     <Icon icon="plus" className="w-5 h-5" />
+                </button>
+                <button
+                    type="button"
+                    onClick={() => void onRefreshModels()}
+                    className="p-1.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-50"
+                    disabled={isRefreshingModels}
+                    aria-label="刷新模型"
+                    data-tooltip="刷新模型"
+                    data-tooltip-placement="left"
+                >
+                    <Icon icon="regenerate" className={`w-5 h-5 ${isRefreshingModels ? 'animate-spin' : ''}`} />
                 </button>
                 <div className="relative" ref={mobileModelSelectorRef}>
                     <button
