@@ -31,7 +31,7 @@ flowchart LR
 - 文件能力：支持 txt、md、docx、pdf 文本提取后参与对话。
 - 本地数据：聊天、角色、设置等保存在浏览器本地存储/IndexedDB。
 - 公益广告：接入“公益中国”寻亲信息，支持缓存、当天关闭、hover/移动端详情。
-- 访问统计：通过独立计数接口展示全站访客和访问量，localhost 不统计。
+- 访问统计：通过自建 Umami 采集访问并展示全站访客和浏览量，localhost 不统计。
 
 ## 项目结构
 
@@ -93,6 +93,20 @@ VITE_TITLE_MODEL_NAME="用于标题生成的模型名"
 ```
 
 不要在 Pages 前端变量中配置真实 API Key。所有 `VITE_*` 变量都会被打包到浏览器端。
+
+## 网站访问统计
+
+本站使用 [自建 Umami](https://umami.331106.xyz)，在 `index.html` 全局加载一次 Tracker；`services/umamiAnalyticsService.ts` 通过公开分享接口获取临时令牌，再读取全站统计，`PageMeterBar.tsx` 展示 `visitors`（全站访客）和 `pageviews`（全站访问）。
+
+- Website ID：`df97b1f0-1c5f-4592-afb9-7b00378dc438`
+- 分享链接：[ikunKChat 访问统计](https://umami.331106.xyz/share/MIJSOS9Fy1RefgOF)
+- 采集域名：`hjm.331106.xyz,yx-hjm.331106.xyz,eo-hjm.331106.xyz`，三个域名汇总到同一网站。
+- 不采集 URL 查询参数和 hash，尊重浏览器 Do Not Track。localhost 和预览域名不会上报访问；localhost 也不查询或显示统计。
+- 公开统计按 `Asia/Shanghai` 查询全部可用历史；临时分享令牌只在内存缓存 5 分钟，请求超时为 15 秒，遇到 401 最多刷新令牌重试一次。请求失败保留 `--`，不显示成零访问。
+
+更换网站或实例时，同时更新 `index.html` 中的 Tracker 配置和 `services/umamiAnalyticsService.ts` 中的地址、Website ID、Share ID。前端只使用公开分享令牌，不需要管理员令牌或数据库密钥。旧计数服务的历史数据不会自动迁移到 Umami。
+
+部署后在正式域名检查 `/script.js`、`/api/send`、`/api/share/MIJSOS9Fy1RefgOF` 和 `/api/websites/{websiteId}/stats` 是否成功，并核对页面数字与 Umami 分享页。采集和公开统计查询是独立流程。
 
 ## Worker 配置
 
